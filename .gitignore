@@ -187,3 +187,5 @@ CoppeliaSim.tar.xz
 # macOS stuff
 .DS_Store
 examples/full_project_setup/CoppeliaSim
+examples/full_project_setup/scripts
+examples/G2_Task_0/scripts
