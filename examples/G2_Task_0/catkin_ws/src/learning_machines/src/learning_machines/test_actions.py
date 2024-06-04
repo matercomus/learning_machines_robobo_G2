@@ -1,5 +1,6 @@
 import cv2
 
+from enum import Enum
 from data_files import FIGRURES_DIR
 from robobo_interface import (
     IRobobo,
@@ -44,40 +45,97 @@ def test_phone_movement(rob: IRobobo):
     print("Phone tilt after move to 50: ", rob.read_phone_tilt())
 
 
+class Direction(Enum):
+    FRONT = "front"
+    BACK = "back"
+    LEFT = "left"
+    RIGHT = "right"
+
+
+def detect_obstacle(irs: list, ir_dist: int, dampening_factor: float) -> Direction:
+    """Detect the direction of the obstacle"""
+    detected_direction = None
+    if (
+        irs[2] >= ir_dist
+        or irs[3] >= ir_dist * dampening_factor
+        or irs[4] >= ir_dist * dampening_factor
+    ):
+        detected_direction = Direction.FRONT
+    elif (
+        irs[0] >= ir_dist
+        or irs[1] >= ir_dist * dampening_factor
+        or irs[6] >= ir_dist * dampening_factor
+    ):
+        detected_direction = Direction.BACK
+    elif irs[7] >= ir_dist or irs[2] >= ir_dist * dampening_factor:
+        detected_direction = Direction.LEFT
+    elif irs[3] >= ir_dist * dampening_factor or irs[5] >= ir_dist:
+        detected_direction = Direction.RIGHT
+    if detected_direction is not None:
+        print(f"Obstacle detected in {detected_direction.value}")
+        print("IRS data: ", irs)
+    return detected_direction
+
+
 def move_until_obstacle(
     rob: HardwareRobobo,
     speed: int,
     direction: str,
-    duration: int = 250,
-):
-    """Move the robot in the specified direction until an obstacle is detected
-    [BackL, BackR, FrontL, FrontR, FrontC, FrontRR, BackC, FrontLL]
-    """
+    duration: int = 200,
+    dampening_factor: float = 0.9,
+) -> Direction:
+    """Move the robot in the specified direction until an obstacle is detected"""
     ir_dist = 50
     while True:
         irs = rob.read_irs()
-        if irs[2] >= ir_dist or irs[3] >= ir_dist or irs[4] >= ir_dist:
-            print("Obstacle detected in front")
-            print(irs)
-            break
-        if irs[0] >= ir_dist or irs[1] >= ir_dist or irs[6] >= ir_dist:
-            print("Obstacle detected in the back")
-            print(irs)
-            break
-        if irs[7] >= ir_dist or irs[2] >= ir_dist:
-            print("Obstacle detected on the left")
-            print(irs)
-            break
-        if irs[3] >= ir_dist or irs[5] >= ir_dist:
-            print("Obstacle detected on the right")
-            print(irs)
+        detected_direction = detect_obstacle(irs, ir_dist, dampening_factor)
+        if detected_direction is not None:
             break
         if direction == "forward":
+            print("Moving forward")
             rob.move_blocking(speed, speed, duration)
         if direction == "backward":
+            print("Moving backward")
             rob.move_blocking(-speed, -speed, duration)
 
     rob.move_blocking(0, 0, 100)  # Stop the robot
+    return detected_direction
+
+
+def move_away_from_obstacle(
+    rob: HardwareRobobo, obstacle_direction: Direction, speed: int
+):
+    """Move the robot in the opposite direction of the detected obstacle"""
+    if obstacle_direction == Direction.FRONT:
+        print("Moving backward")
+        rob.move_blocking(-speed, -speed, 1000)
+        print("Turning right")
+        rob.move_blocking(speed, -speed, 500)
+    elif obstacle_direction == Direction.BACK:
+        print("Moving forward")
+        rob.move_blocking(speed, speed, 1000)
+        print("Turning left")
+        rob.move_blocking(-speed, speed, 500)
+    elif obstacle_direction == Direction.LEFT:
+        print("Turning right")
+        rob.move_blocking(speed, -speed, 500)
+    elif obstacle_direction == Direction.RIGHT:
+        print("Turning left")
+        rob.move_blocking(-speed, speed, 500)
+    rob.move_blocking(0, 0, 100)  # Stop the robot
+
+
+def test_hardware(rob: HardwareRobobo):
+    print("Phone battery level: ", rob.read_phone_battery())
+    print("Robot battery level: ", rob.read_robot_battery())
+    print("IRS data: ", rob.read_irs())
+    speed = 50
+    n_turns = 10
+
+    while n_turns > 0:
+        obstacle_direction = move_until_obstacle(rob, speed, "forward")
+        move_away_from_obstacle(rob, obstacle_direction, speed)
+        n_turns -= 1
 
 
 # Actions to perform in simulation
@@ -101,19 +159,6 @@ def test_sim(rob: SimulationRobobo):
     rob.move_blocking(0, 0, 10)
     rob.move_blocking(50, 0, 1000)
     rob.move_blocking(50, 50, 3000)
-
-
-def test_hardware(rob: HardwareRobobo):
-    print("Phone battery level: ", rob.read_phone_battery())
-    print("Robot battery level: ", rob.read_robot_battery())
-    print("IRS data: ", rob.read_irs())
-
-    speed = 50
-    move_until_obstacle(rob, speed, "forward")
-    rob.move_blocking(-speed, -speed, 500)  # Move back a bit
-    rob.move_blocking(speed, -speed, 500)  # Turn right
-    rob.move_blocking(0, 0, 100)  # Stop the robot
-    move_until_obstacle(rob, speed, "forward")
 
 
 def run_all_actions(rob: IRobobo):
