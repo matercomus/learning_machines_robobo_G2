@@ -1,4 +1,5 @@
 import cv2
+import time
 
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -53,48 +54,72 @@ class Direction(Enum):
     RIGHT = "right"
 
 
-# Mapping of directions to their corresponding IR sensor indices
+# Mapping of directions to their corresponding IR sensor names
 DIRECTION_IR_MAP = {
-    Direction.FRONT: [2, 3, 4],  # FrontL, FrontR, FrontC
-    Direction.BACK: [0, 1, 6],  # BackL, BackR, BackC
-    Direction.LEFT: [7, 2],  # FrontLL, FrontL
-    Direction.RIGHT: [3, 5],  # FrontR, FrontRR
+    Direction.FRONT: ["FrontL", "FrontR", "FrontC"],
+    Direction.BACK: ["BackL", "BackR", "BackC"],
+    Direction.LEFT: ["FrontLL", "FrontL"],
+    Direction.RIGHT: ["FrontR", "FrontRR"],
+}
+
+# Mapping of IR sensor names to their indices
+IR_SENSOR_INDICES = {
+    "FrontL": 2,
+    "FrontR": 3,
+    "FrontC": 4,
+    "BackL": 0,
+    "BackR": 1,
+    "BackC": 6,
+    "FrontLL": 7,
+    "FrontR": 3,
+    "FrontRR": 5,
 }
 
 
 def turn_away_from_obstacle(
     rob: "HardwareRobobo",
     speed: int = 50,
-    move_duration: int = 500,
-    turn_duration: int = 300,
+    move_duration: int = 300,
+    turn_duration: int = 100,
+    ir_threshold: int = 50,
 ):
     """Turns the robot away from detected obstacles until all front sensors are
     clear."""
     while True:
         irs = rob.read_irs()
-        front_sensors = [irs[i] for i in DIRECTION_IR_MAP[Direction.FRONT]]
 
-        # If any front sensor detects an obstacle, move backward and turn
-        if any(ir >= 50 for ir in front_sensors):
+        # If any front sensor detects an obstacle, move backward once and then
+        # keep turning
+        front_sensors = [
+            irs[IR_SENSOR_INDICES[sensor_name]]
+            for sensor_name in DIRECTION_IR_MAP[Direction.FRONT]
+        ]
+        if any(ir >= ir_threshold for ir in front_sensors):
             print("Obstacle detected, moving backward")
             rob.move_blocking(-speed, -speed, move_duration)
             print("Turning right")
-            rob.move_blocking(speed, -speed, turn_duration)
+            while any(ir >= ir_threshold for ir in front_sensors):
+                rob.move_blocking(speed, -speed, turn_duration)
+                irs = rob.read_irs()
+                front_sensors = [
+                    irs[IR_SENSOR_INDICES[sensor_name]]
+                    for sensor_name in DIRECTION_IR_MAP[Direction.FRONT]
+                ]
         else:
-            # If all front sensors are clear, break the loop
             print("Path is clear, moving forward")
             break
 
     rob.move_blocking(speed, speed, move_duration)  # Move forward
 
 
-def test_hardware(rob: "HardwareRobobo"):
+def test_hardware(rob: "HardwareRobobo", n_seconds=120):
     print("Phone battery level: ", rob.read_phone_battery())
     print("Robot battery level: ", rob.read_robot_battery())
     print("IRS data: ", rob.read_irs())
     speed = 50
 
-    while True:
+    start_time = time.time()
+    while (time.time() - start_time) < n_seconds:
         turn_away_from_obstacle(rob, speed)
 
 
