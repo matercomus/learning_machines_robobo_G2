@@ -126,23 +126,38 @@ def move_away_from_obstacle(
     speed: int,
 ):
     """Move the robot in the opposite direction of the detected obstacles"""
-    for obstacle_direction, _ in obstacle_directions:
-        if obstacle_direction == Direction.FRONT:
-            print("Moving backward")
-            rob.move_blocking(-speed, -speed, 1000)
-            print("Turning right")
-            rob.move_blocking(speed, -speed, 500)
-        elif obstacle_direction == Direction.BACK:
-            print("Moving forward")
-            rob.move_blocking(speed, speed, 1000)
-            print("Turning left")
-            rob.move_blocking(-speed, speed, 500)
-        elif obstacle_direction == Direction.LEFT:
-            print("Turning right")
-            rob.move_blocking(speed, -speed, 500)
+    if not obstacle_directions:
+        return
+
+    # Primary action for the closest obstacle direction
+    primary_direction, _ = obstacle_directions[0]
+
+    if primary_direction == Direction.FRONT:
+        print("Moving backward")
+        rob.move_blocking(-speed, -speed, 500)
+        print("Turning right")
+        rob.move_blocking(speed, -speed, 500)
+    elif primary_direction == Direction.BACK:
+        print("Moving forward")
+        rob.move_blocking(speed, speed, 500)
+        print("Turning left")
+        rob.move_blocking(-speed, speed, 500)
+    elif primary_direction == Direction.LEFT:
+        print("Turning right")
+        rob.move_blocking(speed, -speed, 300)
+    elif primary_direction == Direction.RIGHT:
+        print("Turning left")
+        rob.move_blocking(-speed, speed, 300)
+
+    # Additional corrections for other detected obstacles
+    for obstacle_direction, _ in obstacle_directions[1:]:
+        if obstacle_direction == Direction.LEFT:
+            print("Making slight right turn")
+            rob.move_blocking(speed, -speed, 200)
         elif obstacle_direction == Direction.RIGHT:
-            print("Turning left")
-            rob.move_blocking(-speed, speed, 500)
+            print("Making slight left turn")
+            rob.move_blocking(-speed, speed, 200)
+
     rob.move_blocking(0, 0, 100)  # Stop the robot
 
 
@@ -151,7 +166,7 @@ def test_hardware(rob: "HardwareRobobo"):
     print("Robot battery level: ", rob.read_robot_battery())
     print("IRS data: ", rob.read_irs())
     speed = 50
-    n_turns = 10
+    n_turns = 20
 
     while n_turns > 0:
         obstacle_directions = move_until_obstacle(rob, speed, "forward")
