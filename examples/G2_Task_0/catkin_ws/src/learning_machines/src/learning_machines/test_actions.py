@@ -62,103 +62,30 @@ DIRECTION_IR_MAP = {
 }
 
 
-def detect_obstacle(
-    irs: List[Optional[float]], ir_dist: int, dampening_factor: float
-) -> List[Tuple[Direction, float]]:
-    """Detect the direction of the obstacle and return all detected directions
-    sorted by proximity."""
-    detected_directions = []
-
-    for direction, indices in DIRECTION_IR_MAP.items():
-        adjusted_ir_values = [
-            (
-                irs[idx] * (dampening_factor if idx != indices[0] else 1)
-                if idx < len(irs) and irs[idx] is not None
-                else 0
-            )
-            for idx in indices
-        ]
-        max_adjusted_ir_value = max(adjusted_ir_values)
-
-        if max_adjusted_ir_value >= ir_dist:
-            detected_directions.append((direction, max_adjusted_ir_value))
-
-    # Sort directions by the IR value in descending order (closest obstacle first)
-    detected_directions.sort(key=lambda x: x[1], reverse=True)
-
-    if detected_directions:
-        print(
-            f"Obstacles detected in {[direction.value for direction, _ in detected_directions]}"
-        )
-        print("IRS data: ", irs)
-
-    return detected_directions
-
-
-def move_until_obstacle(
+def turn_away_from_obstacle(
     rob: "HardwareRobobo",
-    speed: int,
-    direction: str,
-    duration: int = 200,
-    dampening_factor: float = 0.9,
-) -> List[Tuple[Direction, float]]:
-    """Move the robot in the specified direction until an obstacle is detected"""
-    ir_dist = 50
+    speed: int = 50,
+    move_duration: int = 500,
+    turn_duration: int = 300,
+):
+    """Turns the robot away from detected obstacles until all front sensors are
+    clear."""
     while True:
         irs = rob.read_irs()
-        detected_directions = detect_obstacle(irs, ir_dist, dampening_factor)
-        if detected_directions:
+        front_sensors = [irs[i] for i in DIRECTION_IR_MAP[Direction.FRONT]]
+
+        # If any front sensor detects an obstacle, move backward and turn
+        if any(ir >= 50 for ir in front_sensors):
+            print("Obstacle detected, moving backward")
+            rob.move_blocking(-speed, -speed, move_duration)
+            print("Turning right")
+            rob.move_blocking(speed, -speed, turn_duration)
+        else:
+            # If all front sensors are clear, break the loop
+            print("Path is clear, moving forward")
             break
-        if direction == "forward":
-            print("Moving forward")
-            rob.move_blocking(speed, speed, duration)
-        if direction == "backward":
-            print("Moving backward")
-            rob.move_blocking(-speed, -speed, duration)
 
-    rob.move_blocking(0, 0, 100)  # Stop the robot
-    return detected_directions
-
-
-def move_away_from_obstacle(
-    rob: "HardwareRobobo",
-    obstacle_directions: List[Tuple[Direction, float]],
-    speed: int,
-):
-    """Move the robot in the opposite direction of the detected obstacles"""
-    if not obstacle_directions:
-        return
-
-    # Primary action for the closest obstacle direction
-    primary_direction, _ = obstacle_directions[0]
-
-    if primary_direction == Direction.FRONT:
-        print("Moving backward")
-        rob.move_blocking(-speed, -speed, 500)
-        print("Turning right")
-        rob.move_blocking(speed, -speed, 500)
-    elif primary_direction == Direction.BACK:
-        print("Moving forward")
-        rob.move_blocking(speed, speed, 500)
-        print("Turning left")
-        rob.move_blocking(-speed, speed, 500)
-    elif primary_direction == Direction.LEFT:
-        print("Turning right")
-        rob.move_blocking(speed, -speed, 300)
-    elif primary_direction == Direction.RIGHT:
-        print("Turning left")
-        rob.move_blocking(-speed, speed, 300)
-
-    # Additional corrections for other detected obstacles
-    for obstacle_direction, _ in obstacle_directions[1:]:
-        if obstacle_direction == Direction.LEFT:
-            print("Making slight right turn")
-            rob.move_blocking(speed, -speed, 200)
-        elif obstacle_direction == Direction.RIGHT:
-            print("Making slight left turn")
-            rob.move_blocking(-speed, speed, 200)
-
-    rob.move_blocking(0, 0, 100)  # Stop the robot
+    rob.move_blocking(speed, speed, move_duration)  # Move forward
 
 
 def test_hardware(rob: "HardwareRobobo"):
@@ -166,12 +93,9 @@ def test_hardware(rob: "HardwareRobobo"):
     print("Robot battery level: ", rob.read_robot_battery())
     print("IRS data: ", rob.read_irs())
     speed = 50
-    n_turns = 20
 
-    while n_turns > 0:
-        obstacle_directions = move_until_obstacle(rob, speed, "forward")
-        move_away_from_obstacle(rob, obstacle_directions, speed)
-        n_turns -= 1
+    while True:
+        turn_away_from_obstacle(rob, speed)
 
 
 # Actions to perform in simulation
