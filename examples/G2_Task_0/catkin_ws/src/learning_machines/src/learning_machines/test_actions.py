@@ -1,6 +1,7 @@
 import cv2
 
 from enum import Enum
+from typing import List, Optional, Tuple
 from data_files import FIGRURES_DIR
 from robobo_interface import (
     IRobobo,
@@ -52,44 +53,61 @@ class Direction(Enum):
     RIGHT = "right"
 
 
-def detect_obstacle(irs: list, ir_dist: int, dampening_factor: float) -> Direction:
-    """Detect the direction of the obstacle"""
-    detected_direction = None
-    if (
-        irs[2] >= ir_dist
-        or irs[3] >= ir_dist * dampening_factor
-        or irs[4] >= ir_dist * dampening_factor
-    ):
-        detected_direction = Direction.FRONT
-    elif (
-        irs[0] >= ir_dist
-        or irs[1] >= ir_dist * dampening_factor
-        or irs[6] >= ir_dist * dampening_factor
-    ):
-        detected_direction = Direction.BACK
-    elif irs[7] >= ir_dist or irs[2] >= ir_dist * dampening_factor:
-        detected_direction = Direction.LEFT
-    elif irs[3] >= ir_dist * dampening_factor or irs[5] >= ir_dist:
-        detected_direction = Direction.RIGHT
-    if detected_direction is not None:
-        print(f"Obstacle detected in {detected_direction.value}")
+# Mapping of directions to their corresponding IR sensor indices
+DIRECTION_IR_MAP = {
+    Direction.FRONT: [2, 3, 4],  # FrontL, FrontR, FrontC
+    Direction.BACK: [0, 1, 6],  # BackL, BackR, BackC
+    Direction.LEFT: [7, 2],  # FrontLL, FrontL
+    Direction.RIGHT: [3, 5],  # FrontR, FrontRR
+}
+
+
+def detect_obstacle(
+    irs: List[Optional[float]], ir_dist: int, dampening_factor: float
+) -> List[Tuple[Direction, float]]:
+    """Detect the direction of the obstacle and return all detected directions
+    sorted by proximity."""
+    detected_directions = []
+
+    for direction, indices in DIRECTION_IR_MAP.items():
+        adjusted_ir_values = [
+            (
+                irs[idx] * (dampening_factor if idx != indices[0] else 1)
+                if idx < len(irs) and irs[idx] is not None
+                else 0
+            )
+            for idx in indices
+        ]
+        max_adjusted_ir_value = max(adjusted_ir_values)
+
+        if max_adjusted_ir_value >= ir_dist:
+            detected_directions.append((direction, max_adjusted_ir_value))
+
+    # Sort directions by the IR value in descending order (closest obstacle first)
+    detected_directions.sort(key=lambda x: x[1], reverse=True)
+
+    if detected_directions:
+        print(
+            f"Obstacles detected in {[direction.value for direction, _ in detected_directions]}"
+        )
         print("IRS data: ", irs)
-    return detected_direction
+
+    return detected_directions
 
 
 def move_until_obstacle(
-    rob: HardwareRobobo,
+    rob: "HardwareRobobo",
     speed: int,
     direction: str,
     duration: int = 200,
     dampening_factor: float = 0.9,
-) -> Direction:
+) -> List[Tuple[Direction, float]]:
     """Move the robot in the specified direction until an obstacle is detected"""
     ir_dist = 50
     while True:
         irs = rob.read_irs()
-        detected_direction = detect_obstacle(irs, ir_dist, dampening_factor)
-        if detected_direction is not None:
+        detected_directions = detect_obstacle(irs, ir_dist, dampening_factor)
+        if detected_directions:
             break
         if direction == "forward":
             print("Moving forward")
@@ -99,33 +117,36 @@ def move_until_obstacle(
             rob.move_blocking(-speed, -speed, duration)
 
     rob.move_blocking(0, 0, 100)  # Stop the robot
-    return detected_direction
+    return detected_directions
 
 
 def move_away_from_obstacle(
-    rob: HardwareRobobo, obstacle_direction: Direction, speed: int
+    rob: "HardwareRobobo",
+    obstacle_directions: List[Tuple[Direction, float]],
+    speed: int,
 ):
-    """Move the robot in the opposite direction of the detected obstacle"""
-    if obstacle_direction == Direction.FRONT:
-        print("Moving backward")
-        rob.move_blocking(-speed, -speed, 1000)
-        print("Turning right")
-        rob.move_blocking(speed, -speed, 500)
-    elif obstacle_direction == Direction.BACK:
-        print("Moving forward")
-        rob.move_blocking(speed, speed, 1000)
-        print("Turning left")
-        rob.move_blocking(-speed, speed, 500)
-    elif obstacle_direction == Direction.LEFT:
-        print("Turning right")
-        rob.move_blocking(speed, -speed, 500)
-    elif obstacle_direction == Direction.RIGHT:
-        print("Turning left")
-        rob.move_blocking(-speed, speed, 500)
+    """Move the robot in the opposite direction of the detected obstacles"""
+    for obstacle_direction, _ in obstacle_directions:
+        if obstacle_direction == Direction.FRONT:
+            print("Moving backward")
+            rob.move_blocking(-speed, -speed, 1000)
+            print("Turning right")
+            rob.move_blocking(speed, -speed, 500)
+        elif obstacle_direction == Direction.BACK:
+            print("Moving forward")
+            rob.move_blocking(speed, speed, 1000)
+            print("Turning left")
+            rob.move_blocking(-speed, speed, 500)
+        elif obstacle_direction == Direction.LEFT:
+            print("Turning right")
+            rob.move_blocking(speed, -speed, 500)
+        elif obstacle_direction == Direction.RIGHT:
+            print("Turning left")
+            rob.move_blocking(-speed, speed, 500)
     rob.move_blocking(0, 0, 100)  # Stop the robot
 
 
-def test_hardware(rob: HardwareRobobo):
+def test_hardware(rob: "HardwareRobobo"):
     print("Phone battery level: ", rob.read_phone_battery())
     print("Robot battery level: ", rob.read_robot_battery())
     print("IRS data: ", rob.read_irs())
@@ -133,8 +154,8 @@ def test_hardware(rob: HardwareRobobo):
     n_turns = 10
 
     while n_turns > 0:
-        obstacle_direction = move_until_obstacle(rob, speed, "forward")
-        move_away_from_obstacle(rob, obstacle_direction, speed)
+        obstacle_directions = move_until_obstacle(rob, speed, "forward")
+        move_away_from_obstacle(rob, obstacle_directions, speed)
         n_turns -= 1
 
 
