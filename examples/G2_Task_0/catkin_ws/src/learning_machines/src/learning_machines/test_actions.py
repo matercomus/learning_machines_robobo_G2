@@ -1,53 +1,14 @@
-import cv2
 import time
 import pandas as pd
 import numpy as np
 import os
 
 from enum import Enum
-from typing import List, Optional, Tuple
-from data_files import FIGRURES_DIR
 from robobo_interface import (
     IRobobo,
-    Emotion,
-    LedId,
-    LedColor,
-    SoundEmotion,
     SimulationRobobo,
     HardwareRobobo,
 )
-
-
-def test_emotions(rob: IRobobo):
-    rob.set_emotion(Emotion.HAPPY)
-    rob.talk("Hello")
-    rob.play_emotion_sound(SoundEmotion.PURR)
-    rob.set_led(LedId.FRONTCENTER, LedColor.GREEN)
-
-
-def test_move_and_wheel_reset(rob: IRobobo):
-    rob.move_blocking(100, 100, 1000)
-    print("before reset: ", rob.read_wheels())
-    rob.reset_wheels()
-    rob.sleep(1)
-    print("after reset: ", rob.read_wheels())
-
-
-def test_sensors(rob: IRobobo):
-    print("IRS data: ", rob.read_irs())
-    image = rob.get_image_front()
-    cv2.imwrite(str(FIGRURES_DIR / "photo.png"), image)
-    print("Phone pan: ", rob.read_phone_pan())
-    print("Phone tilt: ", rob.read_phone_tilt())
-    print("Current acceleration: ", rob.read_accel())
-    print("Current orientation: ", rob.read_orientation())
-
-
-def test_phone_movement(rob: IRobobo):
-    rob.set_phone_pan_blocking(20, 100)
-    print("Phone pan after move to 20: ", rob.read_phone_pan())
-    rob.set_phone_tilt_blocking(50, 100)
-    print("Phone tilt after move to 50: ", rob.read_phone_tilt())
 
 
 class Direction(Enum):
@@ -171,13 +132,8 @@ def test_sim_old(rob: SimulationRobobo):
     rob.move_blocking(50, 50, 3000)
 
 
-def time_now(start_time):
-    time_now = time.time() - start_time
-    time_now = round(time_now, 3)
-    return time_now
-
-
 def write_data(data, time, irs, direction=None, event=None, run_nr=0):
+    """Write sensor data to the data dictionary."""
     data["time"].append(time_now(time))
     for sensor_name, sensor_index in IR_SENSOR_INDICES.items():
         data[sensor_name].append(irs[sensor_index])
@@ -186,30 +142,44 @@ def write_data(data, time, irs, direction=None, event=None, run_nr=0):
     data["run_nr"].append(run_nr)
 
 
+def time_now(start_time):
+    """Get the current time elapsed since start_time."""
+    return round(time.time() - start_time, 3)
+
+
 def test_hardware(rob: "HardwareRobobo", mode="HW"):
-    test(rob, mode=mode, ir_threshold=50)
+    test(rob, mode=mode, ir_threshold=50)  # TODO Fix me
 
 
-def test_sim(rob: "SimulationRobobo", mode="SIM"):
-    data = dict()
-    for sensor_name in IR_SENSOR_INDICES.keys():
-        data[sensor_name] = []
+def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=11):
+    # Initialize an empty DataFrame to store results
+    data = {
+        "time": [],
+        "FrontL": [],
+        "FrontR": [],
+        "FrontC": [],
+        "BackL": [],
+        "BackR": [],
+        "BackC": [],
+        "FrontLL": [],
+        "FrontRR": [],
+        "direction": [],
+        "event": [],
+        "run_nr": [],
+    }
 
-    df = None
+    df = pd.DataFrame(data)
 
-    for i in range(11):
-        x = test(rob, run_nr=i, data=data, mode=mode, ir_threshold=200)
-        if i > 0:  # Start saving the results after the first run
-            if df is None:
-                df = pd.DataFrame(x)
-            else:
-                df = pd.concat([df, pd.DataFrame(x)], ignore_index=True)
-        rob.stop_simulation()
+    for i in range(n_runs):
         rob.play_simulation()
+        data = test(rob, run_nr=i, data=data, mode=mode, ir_threshold=200)
+        rob.stop_simulation()
+        new_df = pd.DataFrame(data)
+        df = pd.concat([df, new_df], ignore_index=True)
 
-    if df is not None:
+    if not df.empty:
         os.makedirs("/root/results/data", exist_ok=True)
-        df.to_csv(f"/root/results/data/{mode}_run_final.csv", index=False)
+        df.to_csv(f"/root/results/data/{mode}_run_new.csv", index=False)
 
 
 def test(
@@ -222,8 +192,9 @@ def test(
     move_duration: int = 200,
     turn_duration: int = 230,
 ):
-    print("Running test in ", mode, " mode")
+    print("Running test in", mode, "mode")
     start_time = time.time()
+
     write_data(
         data=data,
         time=start_time,
@@ -233,18 +204,12 @@ def test(
     )
 
     while (
-        (
-            rob.read_irs()[IR_SENSOR_INDICES["FrontL"]] < ir_threshold
-            and rob.read_irs()[IR_SENSOR_INDICES["FrontL"]] != float("inf")
-        )
-        and (
-            rob.read_irs()[IR_SENSOR_INDICES["FrontC"]] < ir_threshold
-            and rob.read_irs()[IR_SENSOR_INDICES["FrontC"]] != float("inf")
-        )
-        and (
-            rob.read_irs()[IR_SENSOR_INDICES["FrontR"]] < ir_threshold
-            and rob.read_irs()[IR_SENSOR_INDICES["FrontR"]] != float("inf")
-        )
+        rob.read_irs()[IR_SENSOR_INDICES["FrontL"]] < ir_threshold
+        and rob.read_irs()[IR_SENSOR_INDICES["FrontL"]] != float("inf")
+        and rob.read_irs()[IR_SENSOR_INDICES["FrontC"]] < ir_threshold
+        and rob.read_irs()[IR_SENSOR_INDICES["FrontC"]] != float("inf")
+        and rob.read_irs()[IR_SENSOR_INDICES["FrontR"]] < ir_threshold
+        and rob.read_irs()[IR_SENSOR_INDICES["FrontR"]] != float("inf")
     ):
         write_data(
             data=data,
@@ -294,16 +259,11 @@ def test(
             run_nr=run_nr,
         )
 
-    del ir_threshold
     return data
 
 
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
-        rob.play_simulation()
-    if isinstance(rob, SimulationRobobo):
-        test_sim(rob)
-    if isinstance(rob, HardwareRobobo):
+        test_simulation(rob)
+    elif isinstance(rob, HardwareRobobo):
         test_hardware(rob)
-    if isinstance(rob, SimulationRobobo):
-        rob.stop_simulation()
