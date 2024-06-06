@@ -177,12 +177,13 @@ def time_now(start_time):
     return time_now
 
 
-def write_data(data, time, irs, direction=None, event=None):
+def write_data(data, time, irs, direction=None, event=None, run_nr=0):
     data["time"].append(time_now(time))
     for sensor_name, sensor_index in IR_SENSOR_INDICES.items():
         data[sensor_name].append(irs[sensor_index])
     data["direction"].append(direction if direction is not None else "N/A")
     data["event"].append(event if event is not None else "N/A")
+    data["run_nr"].append(run_nr)
 
 
 def test_hardware(rob: "HardwareRobobo", mode="HW"):
@@ -190,30 +191,30 @@ def test_hardware(rob: "HardwareRobobo", mode="HW"):
 
 
 def test_sim(rob: "SimulationRobobo", mode="SIM"):
-    data = {
-        "time": [],
-        "direction": [],
-        "event": [],
-    }
+    data = dict()
     for sensor_name in IR_SENSOR_INDICES.keys():
         data[sensor_name] = []
-    df = pd.DataFrame(data)
+
+    df = None
 
     for i in range(11):
-        x = test(rob, data=data, mode=mode, ir_threshold=200)
-        if i == 1:
-            df = pd.DataFrame(x)
-        if i > 1:
-            df = pd.concat([df, x])
+        x = test(rob, run_nr=i, data=data, mode=mode, ir_threshold=200)
+        if i > 0:  # Start saving the results after the first run
+            if df is None:
+                df = pd.DataFrame(x)
+            else:
+                df = pd.concat([df, pd.DataFrame(x)], ignore_index=True)
         rob.stop_simulation()
         rob.play_simulation()
 
-    os.makedirs("/root/results/data", exist_ok=True)
-    df.to_csv(f"/root/results/data/{mode}_run.csv", index=False)
+    if df is not None:
+        os.makedirs("/root/results/data", exist_ok=True)
+        df.to_csv(f"/root/results/data/{mode}_run_final.csv", index=False)
 
 
 def test(
     rob,
+    run_nr,
     mode,
     data,
     ir_threshold,
@@ -223,7 +224,13 @@ def test(
 ):
     print("Running test in ", mode, " mode")
     start_time = time.time()
-    write_data(data, start_time, rob.read_irs(), "forward")
+    write_data(
+        data=data,
+        time=start_time,
+        irs=rob.read_irs(),
+        direction="forward",
+        run_nr=run_nr,
+    )
 
     while (
         (
@@ -239,30 +246,56 @@ def test(
             and rob.read_irs()[IR_SENSOR_INDICES["FrontR"]] != float("inf")
         )
     ):
-
-        write_data(data, start_time, rob.read_irs(), "forward")
+        write_data(
+            data=data,
+            time=start_time,
+            irs=rob.read_irs(),
+            direction="forward",
+            run_nr=run_nr,
+        )
         rob.move_blocking(speed, speed, move_duration)
 
-    print("Reached obstacle")
-    write_data(data, start_time, rob.read_irs(), event="obstacle")
+    write_data(
+        data=data,
+        time=start_time,
+        irs=rob.read_irs(),
+        direction="forward",
+        event="obstacle",
+        run_nr=run_nr,
+    )
 
     for _ in range(3):
-        print("Moving backward")
         rob.move_blocking(-speed, -speed, move_duration)
-        write_data(data, start_time, rob.read_irs(), "backward")
+        write_data(
+            data=data,
+            time=start_time,
+            irs=rob.read_irs(),
+            direction="backward",
+            run_nr=run_nr,
+        )
 
     for _ in range(5):
-        print("Turning right")
         rob.move_blocking(speed, -speed, turn_duration)
-        write_data(data, start_time, rob.read_irs(), "right")
+        write_data(
+            data=data,
+            time=start_time,
+            irs=rob.read_irs(),
+            direction="right",
+            run_nr=run_nr,
+        )
 
     for _ in range(10):
-        print("Moving forward")
         rob.move_blocking(speed, speed, move_duration)
-        write_data(data, start_time, rob.read_irs(), "forward")
+        write_data(
+            data=data,
+            time=start_time,
+            irs=rob.read_irs(),
+            direction="forward",
+            run_nr=run_nr,
+        )
 
     del ir_threshold
-    return pd.DataFrame(data)
+    return data
 
 
 def run_all_actions(rob: IRobobo):
