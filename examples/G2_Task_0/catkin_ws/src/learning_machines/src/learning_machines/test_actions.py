@@ -40,14 +40,14 @@ IR_SENSOR_INDICES = {
 }
 
 
-def write_data(data, time, irs, direction=None, event=None, run_nr=0):
+def write_data(data, time, irs, direction=None, event=None, run_id=0):
     """Write sensor data to the data dictionary."""
     data["time"].append(time_now(time))
     for sensor_name, sensor_index in IR_SENSOR_INDICES.items():
         data[sensor_name].append(irs[sensor_index])
     data["direction"].append(direction if direction is not None else "N/A")
     data["event"].append(event if event is not None else "N/A")
-    data["run_nr"].append(run_nr)
+    data["run_id"].append(run_id)
 
 
 def time_now(start_time):
@@ -74,7 +74,7 @@ def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=11):
             "FrontRR",
             "direction",
             "event",
-            "run_nr",
+            "run_id",
         ]
     )
 
@@ -92,11 +92,11 @@ def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=11):
             "FrontRR": [],
             "direction": [],
             "event": [],
-            "run_nr": [],
+            "run_id": [],
         }
 
         rob.play_simulation()
-        data = test(rob, run_nr=i, data=data, mode=mode, ir_threshold=200)
+        data = test(rob, run_id=i, data=data, mode=mode, ir_threshold=200)
         rob.stop_simulation()
 
         # Convert run data to DataFrame and concatenate
@@ -110,7 +110,7 @@ def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=11):
 
 def test(
     rob,
-    run_nr,
+    run_id,
     mode,
     data,
     ir_threshold,
@@ -126,7 +126,7 @@ def test(
         time=start_time,
         irs=rob.read_irs(),
         direction="forward",
-        run_nr=run_nr,
+        run_id=run_id,
     )
 
     while (
@@ -142,7 +142,7 @@ def test(
             time=start_time,
             irs=rob.read_irs(),
             direction="forward",
-            run_nr=run_nr,
+            run_id=run_id,
         )
         rob.move_blocking(speed, speed, move_duration)
 
@@ -152,7 +152,7 @@ def test(
         irs=rob.read_irs(),
         direction="forward",
         event="obstacle",
-        run_nr=run_nr,
+        run_id=run_id,
     )
 
     for _ in range(3):
@@ -162,7 +162,7 @@ def test(
             time=start_time,
             irs=rob.read_irs(),
             direction="backward",
-            run_nr=run_nr,
+            run_id=run_id,
         )
 
     for _ in range(5):
@@ -172,7 +172,7 @@ def test(
             time=start_time,
             irs=rob.read_irs(),
             direction="right",
-            run_nr=run_nr,
+            run_id=run_id,
         )
 
     for _ in range(10):
@@ -182,7 +182,7 @@ def test(
             time=start_time,
             irs=rob.read_irs(),
             direction="forward",
-            run_nr=run_nr,
+            run_id=run_id,
         )
 
     return data
