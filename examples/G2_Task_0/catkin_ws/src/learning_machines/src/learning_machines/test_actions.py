@@ -1,5 +1,8 @@
 import cv2
 import time
+import pandas as pd
+import numpy as np
+import os
 
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -76,55 +79,77 @@ IR_SENSOR_INDICES = {
 }
 
 
+def check_obstacles(
+    rob: "HardwareRobobo", direction_map: dict, sensor_indices: dict, ir_threshold: int
+):
+    """Check for obstacles in the specified directions."""
+    irs = rob.read_irs()
+    sensors = {
+        direction: [
+            irs[sensor_indices[sensor_name]] for sensor_name in direction_map[direction]
+        ]
+        for direction in direction_map
+    }
+    obstacles = {
+        direction: any(ir >= ir_threshold for ir in sensors[direction])
+        for direction in sensors
+    }
+    return obstacles
+
+
 def turn_away_from_obstacle(
     rob: "HardwareRobobo",
     speed: int = 50,
-    move_duration: int = 300,
+    move_duration: int = 200,
     turn_duration: int = 100,
     ir_threshold: int = 50,
 ):
     """Turns the robot away from detected obstacles until all front sensors are
-    clear."""
-    while True:
-        irs = rob.read_irs()
+    clear or obstacle detected behind."""
+    speed_normal = speed
+    speed_turn = speed // 3
 
-        # If any front sensor detects an obstacle, move backward once and then
-        # keep turning
-        front_sensors = [
-            irs[IR_SENSOR_INDICES[sensor_name]]
-            for sensor_name in DIRECTION_IR_MAP[Direction.FRONT]
-        ]
-        if any(ir >= ir_threshold for ir in front_sensors):
-            print("Obstacle detected, moving backward")
-            rob.move_blocking(-speed, -speed, move_duration)
-            print("Turning right")
-            while any(ir >= ir_threshold for ir in front_sensors):
-                rob.move_blocking(speed, -speed, turn_duration)
-                irs = rob.read_irs()
-                front_sensors = [
-                    irs[IR_SENSOR_INDICES[sensor_name]]
-                    for sensor_name in DIRECTION_IR_MAP[Direction.FRONT]
-                ]
+    while True:
+        obstacles = check_obstacles(
+            rob, DIRECTION_IR_MAP, IR_SENSOR_INDICES, ir_threshold
+        )
+        obstacle_ahead = obstacles[Direction.FRONT]
+        obstacle_behind = obstacles[Direction.BACK]
+
+        if obstacle_ahead:
+            print("Obstacle detected ahead, moving backward")
+            rob.move_blocking(-speed_normal, -speed_normal, move_duration)
+            while obstacle_ahead:
+                print("Turning right")
+                rob.move_blocking(speed_turn, -speed_turn, turn_duration)
+                obstacles = check_obstacles(
+                    rob, DIRECTION_IR_MAP, IR_SENSOR_INDICES, ir_threshold
+                )
+                obstacle_ahead = obstacles[Direction.FRONT]
+                obstacle_left = obstacles[Direction.LEFT]
+                obstacle_behind = obstacles[Direction.BACK]
+
+                if not obstacle_ahead or obstacle_left or obstacle_behind:
+                    break
         else:
-            print("Path is clear, moving forward")
             break
 
-    rob.move_blocking(speed, speed, move_duration)  # Move forward
 
-
-def test_hardware(rob: "HardwareRobobo", n_seconds=120):
+def test_hardware2(rob: "HardwareRobobo", n_seconds=120):
     print("Phone battery level: ", rob.read_phone_battery())
     print("Robot battery level: ", rob.read_robot_battery())
     print("IRS data: ", rob.read_irs())
     speed = 50
-
     start_time = time.time()
+
     while (time.time() - start_time) < n_seconds:
         turn_away_from_obstacle(rob, speed)
+        print("Moving forward")
+        rob.move_blocking(speed, speed, 200)  # Move forward
 
 
 # Actions to perform in simulation
-def test_sim(rob: SimulationRobobo):
+def test_sim_old(rob: SimulationRobobo):
     print(rob.get_sim_time())
     print(rob.is_running())
     print(rob.get_position())
@@ -144,6 +169,100 @@ def test_sim(rob: SimulationRobobo):
     rob.move_blocking(0, 0, 10)
     rob.move_blocking(50, 0, 1000)
     rob.move_blocking(50, 50, 3000)
+
+
+def time_now(start_time):
+    time_now = time.time() - start_time
+    time_now = round(time_now, 3)
+    return time_now
+
+
+def write_data(data, time, irs, direction=None, event=None):
+    data["time"].append(time_now(time))
+    for sensor_name, sensor_index in IR_SENSOR_INDICES.items():
+        data[sensor_name].append(irs[sensor_index])
+    data["direction"].append(direction if direction is not None else "N/A")
+    data["event"].append(event if event is not None else "N/A")
+
+
+def test_hardware(rob: "HardwareRobobo", mode="HW"):
+    test(rob, mode=mode, ir_threshold=50)
+
+
+def test_sim(rob: "SimulationRobobo", mode="SIM"):
+    data = {
+        "time": [],
+        "direction": [],
+        "event": [],
+    }
+    for sensor_name in IR_SENSOR_INDICES.keys():
+        data[sensor_name] = []
+    df = pd.DataFrame(data)
+
+    for i in range(11):
+        x = test(rob, data=data, mode=mode, ir_threshold=200)
+        if i == 1:
+            df = pd.DataFrame(x)
+        if i > 1:
+            df = pd.concat([df, x])
+        rob.stop_simulation()
+        rob.play_simulation()
+
+    os.makedirs("/root/results/data", exist_ok=True)
+    df.to_csv(f"/root/results/data/{mode}_run.csv", index=False)
+
+
+def test(
+    rob,
+    mode,
+    data,
+    ir_threshold,
+    speed: int = 50,
+    move_duration: int = 200,
+    turn_duration: int = 230,
+):
+    print("Running test in ", mode, " mode")
+    start_time = time.time()
+    write_data(data, start_time, rob.read_irs(), "forward")
+
+    while (
+        (
+            rob.read_irs()[IR_SENSOR_INDICES["FrontL"]] < ir_threshold
+            and rob.read_irs()[IR_SENSOR_INDICES["FrontL"]] != float("inf")
+        )
+        and (
+            rob.read_irs()[IR_SENSOR_INDICES["FrontC"]] < ir_threshold
+            and rob.read_irs()[IR_SENSOR_INDICES["FrontC"]] != float("inf")
+        )
+        and (
+            rob.read_irs()[IR_SENSOR_INDICES["FrontR"]] < ir_threshold
+            and rob.read_irs()[IR_SENSOR_INDICES["FrontR"]] != float("inf")
+        )
+    ):
+
+        write_data(data, start_time, rob.read_irs(), "forward")
+        rob.move_blocking(speed, speed, move_duration)
+
+    print("Reached obstacle")
+    write_data(data, start_time, rob.read_irs(), event="obstacle")
+
+    for _ in range(3):
+        print("Moving backward")
+        rob.move_blocking(-speed, -speed, move_duration)
+        write_data(data, start_time, rob.read_irs(), "backward")
+
+    for _ in range(5):
+        print("Turning right")
+        rob.move_blocking(speed, -speed, turn_duration)
+        write_data(data, start_time, rob.read_irs(), "right")
+
+    for _ in range(10):
+        print("Moving forward")
+        rob.move_blocking(speed, speed, move_duration)
+        write_data(data, start_time, rob.read_irs(), "forward")
+
+    del ir_threshold
+    return pd.DataFrame(data)
 
 
 def run_all_actions(rob: IRobobo):
