@@ -56,7 +56,26 @@ def time_now(start_time):
 
 
 def test_hardware(rob: "HardwareRobobo", mode="HW"):
-    test(rob, mode=mode, ir_threshold=50)  # TODO Fix me
+    test(
+        rob,
+        mode=mode,
+        ir_threshold=50,
+        data={
+            "time": [],
+            "FrontL": [],
+            "FrontR": [],
+            "FrontC": [],
+            "BackL": [],
+            "BackR": [],
+            "BackC": [],
+            "FrontLL": [],
+            "FrontRR": [],
+            "direction": [],
+            "event": [],
+            "run_id": [],
+        },
+        run_id=0,
+    )  # TODO Fix me
 
 
 def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=100):
