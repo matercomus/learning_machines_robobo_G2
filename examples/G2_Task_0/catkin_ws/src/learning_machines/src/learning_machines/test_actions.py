@@ -78,7 +78,7 @@ def test_hardware(rob: "HardwareRobobo", mode="HW"):
     )  # TODO Fix me
 
 
-def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=100):
+def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=1):
     # Initialize an empty DataFrame to store results
     df = pd.DataFrame(
         columns=[
