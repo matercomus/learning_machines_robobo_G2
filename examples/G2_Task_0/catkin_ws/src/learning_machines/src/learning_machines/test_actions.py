@@ -75,27 +75,11 @@ def test_hardware(rob: "HardwareRobobo", mode="HW"):
             "run_id": [],
         },
         run_id=0,
-    )  # TODO Fix me
+    )
 
 
 def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=1):
-    # Initialize an empty DataFrame to store results
-    df = pd.DataFrame(
-        columns=[
-            "time",
-            "FrontL",
-            "FrontR",
-            "FrontC",
-            "BackL",
-            "BackR",
-            "BackC",
-            "FrontLL",
-            "FrontRR",
-            "direction",
-            "event",
-            "run_id",
-        ]
-    )
+    os.makedirs("/root/results/data", exist_ok=True)
 
     for i in range(n_runs):
         # Reset data dictionary for each run
@@ -118,13 +102,11 @@ def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=1):
         data = test(rob, run_id=i, data=data, mode=mode, ir_threshold=200)
         rob.stop_simulation()
 
-        # Convert run data to DataFrame and concatenate
-        new_df = pd.DataFrame(data)
-        df = pd.concat([df, new_df], ignore_index=True)
-
-    if not df.empty:
-        os.makedirs("/root/results/data", exist_ok=True)
-        df.to_csv(f"/root/results/data/{mode}_run_newer.csv", index=False)
+        # Convert run data to DataFrame and save
+        df = pd.DataFrame(data)
+        df.to_csv(
+            f"/root/results/data/{mode}_run.csv", mode="a", header=i == 0, index=False
+        )
 
 
 def test(
