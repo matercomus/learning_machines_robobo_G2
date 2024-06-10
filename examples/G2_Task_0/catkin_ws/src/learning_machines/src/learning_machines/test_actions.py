@@ -56,27 +56,35 @@ def time_now(start_time):
     return round((time.time() - start_time) * 1000, 0)
 
 
-def test_hardware(rob: "HardwareRobobo", mode="HW"):
-    test(
-        rob,
-        mode=mode,
-        ir_threshold=50,
-        data={
-            "time": [],
-            "FrontL": [],
-            "FrontR": [],
-            "FrontC": [],
-            "BackL": [],
-            "BackR": [],
-            "BackC": [],
-            "FrontLL": [],
-            "FrontRR": [],
-            "direction": [],
-            "event": [],
-            "run_id": [],
-        },
-        run_id=0,
+def save_data_to_csv(data, mode, n_runs, timestamp, i):
+    """Convert data to DataFrame and save to CSV."""
+    df = pd.DataFrame(data)
+    df.to_csv(
+        f"/root/results/data/{mode}_{n_runs}_runs_{timestamp}.csv",
+        mode="a",
+        header=i == 0,
+        index=False,
     )
+
+
+def test_hardware(rob: "HardwareRobobo", mode="HW"):
+    data = {
+        "time": [],
+        "FrontL": [],
+        "FrontR": [],
+        "FrontC": [],
+        "BackL": [],
+        "BackR": [],
+        "BackC": [],
+        "FrontLL": [],
+        "FrontRR": [],
+        "direction": [],
+        "event": [],
+        "run_id": [],
+    }
+    test(rob, mode=mode, ir_threshold=50, data=data, run_id=0)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_data_to_csv(data, mode, 1, timestamp, 0)
 
 
 def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=5):
@@ -103,14 +111,7 @@ def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=5):
         data = test(rob, run_id=i, data=data, mode=mode, ir_threshold=200)
         rob.stop_simulation()
 
-        # Convert run data to DataFrame and save
-        df = pd.DataFrame(data)
-        df.to_csv(
-            f"/root/results/data/{mode}_{n_runs}_runs_{timestamp}.csv",
-            mode="a",
-            header=i == 0,
-            index=False,
-        )
+        save_data_to_csv(data, mode, n_runs, timestamp, i)
 
 
 def test(
