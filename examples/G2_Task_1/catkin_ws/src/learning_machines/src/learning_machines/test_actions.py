@@ -3,6 +3,7 @@ import datetime
 import pandas as pd
 import numpy as np
 import os
+from stable_baselines3 import PPO
 
 from enum import Enum
 from robobo_interface import (
@@ -194,8 +195,13 @@ def test(
     return data
 
 
+def test_stable_baselines():
+    model = PPO("MlpPolicy", "CartPole-v1", verbose=1).learn(1000)
+
+
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
-        test_simulation(rob)
+        # test_simulation(rob)
+        test_stable_baselines()
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob)
