@@ -1,0 +1,12 @@
+cbor==1.0.0
+cbor2==5.6.3
+coppeliasim_zmqremoteapi_client==2.0.4
+numpy==1.24.4
+opencv-python==4.9.0.80
+pandas==2.0.3
+python-dateutil==2.9.0.post0
+pytz==2024.1
+pyzmq==26.0.3
+six==1.16.0
+tzdata==2024.1
+
