@@ -1,4 +1,5 @@
 import time
+import datetime
 import pandas as pd
 import numpy as np
 import os
@@ -51,8 +52,8 @@ def write_data(data, time, irs, direction=None, event=None, run_id=0):
 
 
 def time_now(start_time):
-    """Get the current time elapsed since start_time."""
-    return round(time.time() - start_time, 3)
+    """Get the current time elapsed since start_time in milliseconds."""
+    return round((time.time() - start_time) * 1000, 0)
 
 
 def test_hardware(rob: "HardwareRobobo", mode="HW"):
@@ -78,9 +79,9 @@ def test_hardware(rob: "HardwareRobobo", mode="HW"):
     )
 
 
-def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=1):
+def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=5):
     os.makedirs("/root/results/data", exist_ok=True)
-
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     for i in range(n_runs):
         # Reset data dictionary for each run
         data = {
@@ -105,7 +106,10 @@ def test_simulation(rob: "SimulationRobobo", mode="SIM", n_runs=1):
         # Convert run data to DataFrame and save
         df = pd.DataFrame(data)
         df.to_csv(
-            f"/root/results/data/{mode}_run.csv", mode="a", header=i == 0, index=False
+            f"/root/results/data/{mode}_{n_runs}_runs_{timestamp}.csv",
+            mode="a",
+            header=i == 0,
+            index=False,
         )
 
 
