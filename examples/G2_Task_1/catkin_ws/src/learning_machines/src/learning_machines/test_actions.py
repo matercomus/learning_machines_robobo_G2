@@ -3,8 +3,12 @@ import datetime
 import pandas as pd
 import numpy as np
 import os
-from stable_baselines3 import PPO
+import gymnasium as gym
 
+from stable_baselines3 import PPO, A2C, DQN
+from stable_baselines3.common.env_util import make_vec_env
+from gymnasium import spaces
+from stable_baselines3.common.env_checker import check_env
 from enum import Enum
 from robobo_interface import (
     IRobobo,
@@ -14,10 +18,10 @@ from robobo_interface import (
 
 
 class Direction(Enum):
-    FRONT = "front"
-    BACK = "back"
-    LEFT = "left"
-    RIGHT = "right"
+    FRONT = 0
+    BACK = 1
+    LEFT = 2
+    RIGHT = 3
 
 
 # Mapping of directions to their corresponding IR sensor names
@@ -195,13 +199,143 @@ def test(
     return data
 
 
-def test_stable_baselines():
-    model = PPO("MlpPolicy", "CartPole-v1", verbose=1).learn(1000)
+class CoppeliaSimEnv(gym.Env):
+    """
+    Custom Environment that follows gym interface
+    """
+
+    metadata = {"render.modes": ["human"]}
+    n_actions = 5
+
+    def __init__(self, rob: "SimulationRobobo"):
+        super(CoppeliaSimEnv, self).__init__()
+        self.rob = rob
+        # 4 actions: forward, backward, left, right
+        self.action_space = spaces.Discrete(4)
+        # Define observation space
+        low = np.zeros(8)  # 8 sensors, all readings start at 0
+        high = np.full(8, np.inf)  # 8 sensors, maximum reading is infinity
+        self.observation_space = spaces.Box(low=low, high=high, dtype=np.float64)
+        self.previous_position = None
+
+    def calculate_reward(self):
+        distance_threshold = 200
+        speed_reward = 0.1  # Reward for moving fast
+        obstacle_penalty = -1000  # Penalty for hitting an obstacle
+        idle_penalty = -1  # Penalty for staying in one spot
+
+        # Get current position
+        current_position = self.rob.get_position()
+
+        # Check if the agent hit an obstacle
+        if any(self.rob.read_irs()) > distance_threshold:
+            return obstacle_penalty
+
+        # Check if the agent is moving
+        if (
+            self.previous_position is not None
+            and current_position == self.previous_position
+        ):
+            return idle_penalty
+
+        # Reward the agent for moving fast
+        if self.previous_position is not None:
+            speed = (
+                (current_position.x - self.previous_position.x) ** 2
+                + (current_position.y - self.previous_position.y) ** 2
+            ) ** 0.5
+            reward = speed * speed_reward
+        else:
+            reward = 0
+
+        # Update previous position
+        self.previous_position = current_position
+
+        return reward
+
+    def step(self, action):
+        speed = 50
+        # Map integer action to Direction instance
+        action = Direction(action)
+        # Execute one time step within the environment
+        if action == Direction.FRONT:  # forward
+            self.rob.move_blocking(speed, speed, 200)
+        elif action == Direction.BACK:  # backward
+            self.rob.move_blocking(-speed, -speed, 200)
+        elif action == Direction.LEFT:  # left
+            self.rob.move_blocking(-speed, speed, 200)
+        elif action == Direction.RIGHT:  # right
+            self.rob.move_blocking(speed, -speed, 200)
+        else:
+            raise ValueError(f"Invalid action {action}")
+
+        observation = np.array(self.rob.read_irs())
+        observation = np.nan_to_num(observation, posinf=1e10)
+        print("Step observation: ", observation)
+        reward = self.calculate_reward()
+        terminated = False
+        truncated = False
+        info = {}
+
+        return (observation, reward, terminated, truncated, info)
+
+    def reset(self, seed=None, options=None):
+        self.rob.stop_simulation()
+        self.rob.play_simulation()
+        observation = np.array(self.rob.read_irs())
+        observation = np.nan_to_num(observation, posinf=1e10)
+        print("Reset observation: ", observation)
+        info = {}
+        return (observation, info)
+
+    def stop(self):
+        self.rob.stop_simulation()
+
+
+def test_stable_baselines(rob):
+    env = CoppeliaSimEnv(rob=rob)
+    check_env(env, warn=True)
+
+    obs, info = env.reset()
+    print("Initial observation:", obs)
+    print("Action space:", env.action_space)
+    print("Action space sample:", env.action_space.sample())
+
+    # Hardcoded go left
+    action = Direction.LEFT
+    n_steps = 100
+    for i in range(n_steps):
+        print("Step ", i)
+        observation, reward, terminated, truncated, info = env.step(action)
+        done = terminated or truncated
+        print(f"Observation: {observation}, Reward: {reward}, Done: {done}")
+        if done:
+            break
+
+
+def train_model(rob):
+    def make_env():
+        return CoppeliaSimEnv(rob=rob)
+
+    vec_env = make_vec_env(make_env, n_envs=1)
+    model = A2C("MlpPolicy", vec_env, verbose=1).learn(100)
+
+    obs = vec_env.reset()
+    n_steps = 100
+    for i in range(n_steps):
+        action, _states = model.predict(obs, deterministic=True)
+        print("Step ", i)
+        print("Action: ", action)
+        obs, rewards, done, info = vec_env.step(action)
+        print(f"Observation: {obs}, Reward: {rewards}, Done: {done}, info: {info}")
+        if done:
+            break
 
 
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
         # test_simulation(rob)
-        test_stable_baselines()
+        # test_stable_baselines(rob)
+        train_model(rob)
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob)
