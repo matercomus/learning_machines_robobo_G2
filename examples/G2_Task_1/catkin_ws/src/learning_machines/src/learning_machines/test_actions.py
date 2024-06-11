@@ -5,7 +5,7 @@ import numpy as np
 import os
 import gymnasium as gym
 
-from stable_baselines3 import PPO, A2C, DQN
+from stable_baselines3 import A2C
 from stable_baselines3.common.env_util import make_vec_env
 from gymnasium import spaces
 from stable_baselines3.common.env_checker import check_env
@@ -205,14 +205,12 @@ class CoppeliaSimEnv(gym.Env):
     """
 
     metadata = {"render.modes": ["human"]}
-    n_actions = 5
 
     def __init__(self, rob: "SimulationRobobo"):
         super(CoppeliaSimEnv, self).__init__()
         self.rob = rob
         # 4 actions: forward, backward, left, right
         self.action_space = spaces.Discrete(4)
-        # Define observation space
         low = np.zeros(8)  # 8 sensors, all readings start at 0
         high = np.full(8, np.inf)  # 8 sensors, maximum reading is infinity
         self.observation_space = spaces.Box(low=low, high=high, dtype=np.float64)
@@ -271,7 +269,6 @@ class CoppeliaSimEnv(gym.Env):
 
         observation = np.array(self.rob.read_irs())
         observation = np.nan_to_num(observation, posinf=1e10)
-        print("Step observation: ", observation)
         reward = self.calculate_reward()
         terminated = False
         truncated = False
@@ -284,7 +281,6 @@ class CoppeliaSimEnv(gym.Env):
         self.rob.play_simulation()
         observation = np.array(self.rob.read_irs())
         observation = np.nan_to_num(observation, posinf=1e10)
-        print("Reset observation: ", observation)
         info = {}
         return (observation, info)
 
@@ -296,7 +292,7 @@ def test_stable_baselines(rob):
     env = CoppeliaSimEnv(rob=rob)
     check_env(env, warn=True)
 
-    obs, info = env.reset()
+    obs, _ = env.reset()
     print("Initial observation:", obs)
     print("Action space:", env.action_space)
     print("Action space sample:", env.action_space.sample())
@@ -306,7 +302,7 @@ def test_stable_baselines(rob):
     n_steps = 100
     for i in range(n_steps):
         print("Step ", i)
-        observation, reward, terminated, truncated, info = env.step(action)
+        observation, reward, terminated, truncated, _ = env.step(action)
         done = terminated or truncated
         print(f"Observation: {observation}, Reward: {reward}, Done: {done}")
         if done:
@@ -323,7 +319,7 @@ def train_model(rob):
     obs = vec_env.reset()
     n_steps = 100
     for i in range(n_steps):
-        action, _states = model.predict(obs, deterministic=True)
+        action, _ = model.predict(obs, deterministic=True)
         print("Step ", i)
         print("Action: ", action)
         obs, rewards, done, info = vec_env.step(action)
@@ -334,8 +330,6 @@ def train_model(rob):
 
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
-        # test_simulation(rob)
-        # test_stable_baselines(rob)
         train_model(rob)
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob)
