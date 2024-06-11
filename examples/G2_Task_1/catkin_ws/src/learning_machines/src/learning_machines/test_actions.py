@@ -284,7 +284,7 @@ class CoppeliaSimEnv(gym.Env):
         info = {}
         return (observation, info)
 
-    def stop(self):
+    def close(self):
         self.rob.stop_simulation()
 
 
@@ -309,27 +309,35 @@ def test_stable_baselines(rob):
             break
 
 
-def train_model(rob):
+def train_and_run_model(rob):
+    """This function trains an agent using the A2C algorithm and runs it in the
+    simulation."""
+
     def make_env():
         return CoppeliaSimEnv(rob=rob)
 
     vec_env = make_vec_env(make_env, n_envs=1)
-    model = A2C("MlpPolicy", vec_env, verbose=1).learn(100)
-
+    print("Creating and training model")
+    model = A2C("MlpPolicy", vec_env, verbose=1).learn(1000)
+    print("Training complete")
     obs = vec_env.reset()
     n_steps = 100
+    print(f"Running model for {n_steps} steps")
     for i in range(n_steps):
+        print("----" * 20)
+        print(f"Step {i}")
         action, _ = model.predict(obs, deterministic=True)
-        print("Step ", i)
-        print("Action: ", action)
-        obs, rewards, done, info = vec_env.step(action)
-        print(f"Observation: {obs}, Reward: {rewards}, Done: {done}, info: {info}")
+        print(f"Action: {action}")
+        obs, reward, done, info = vec_env.step(action)
+        print(f"Observation: {obs}\nReward: {reward}\nDone: {done}\nInfo: {info}")
         if done:
             break
+
+    rob.stop_simulation()
 
 
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
-        train_model(rob)
+        train_and_run_model(rob)
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob)
