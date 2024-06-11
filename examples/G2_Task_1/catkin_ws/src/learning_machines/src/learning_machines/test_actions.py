@@ -312,13 +312,21 @@ def test_stable_baselines(rob):
 def train_and_run_model(rob):
     """This function trains an agent using the A2C algorithm and runs it in the
     simulation."""
+    model_name = f"A2C-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    os.makedirs(f"/root/results/tensorboard/", exist_ok=True)
 
     def make_env():
         return CoppeliaSimEnv(rob=rob)
 
     vec_env = make_vec_env(make_env, n_envs=1)
     print("Creating and training model")
-    model = A2C("MlpPolicy", vec_env, verbose=1).learn(1000)
+    model = A2C(
+        "MlpPolicy",
+        vec_env,
+        verbose=1,
+        tensorboard_log=f"/root/results/tensorboard/{model_name}",
+    )
+    model.learn(total_timesteps=10_000, tb_log_name=model_name)
     print("Training complete")
     obs = vec_env.reset()
     n_steps = 100
