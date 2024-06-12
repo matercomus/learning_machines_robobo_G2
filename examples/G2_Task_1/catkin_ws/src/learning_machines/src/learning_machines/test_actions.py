@@ -271,7 +271,7 @@ class CoppeliaSimEnv(gym.Env):
 
         print("----" * 20)
         print("Step")
-        print(f"Action: {action}, Observation: {observation}, Reward: {reward}")
+        print(f"Action: {action}\nObservation: {observation}\nReward: {reward}")
         return (observation, reward, terminated, truncated, info)
 
     def reset(self, seed=None, options=None):
@@ -315,14 +315,21 @@ class HParamCallback(BaseCallback):
     logs them to TensorBoard.
     """
 
-    def __init__(self, params, model, verbose=1):
-        super(HParamCallback, self).__init__(verbose)
-        self.params = params
-        self.model = model
-
     def _on_training_start(self) -> None:
-        hparam_dict = {"algorithm": self.model.__class__.__name__}
-        hparam_dict.update(self.params)
+        hparam_dict = {
+            "algorithm": self.model.__class__.__name__,
+            "learning rate": self.model.learning_rate,
+            "gamma": self.model.gamma,
+            "train_freq": self.model.train_freq,
+            "gradient_steps": self.model.gradient_steps,
+            "exploration_fraction": self.model.exploration_fraction,
+            "exploration_final_eps": self.model.exploration_final_eps,
+            "target_update_interval": self.model.target_update_interval,
+            "learning_starts": self.model.learning_starts,
+            "buffer_size": self.model.buffer_size,
+            "batch_size": self.model.batch_size,
+            "learning_rate": self.model.learning_rate,
+        }
         metric_dict = {
             "rollout/ep_len_mean": 0,
             "train/value_loss": 0.0,
@@ -343,8 +350,8 @@ def train_and_run_model(rob):
     """This function trains an agent using the DQN algorithm and runs it in the
     simulation."""
     model_name = f"DQN-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    models_dir = "/root/results/models"
-    tensorboard_dir = "/root/results/tensorboard"
+    models_dir = "/root/results/models/"
+    tensorboard_dir = "/root/results/tensorboard/"
     os.makedirs(models_dir, exist_ok=True)
     os.makedirs(tensorboard_dir, exist_ok=True)
 
@@ -370,12 +377,13 @@ def train_and_run_model(rob):
         batch_size=128,
         learning_rate=4e-3,
         policy_kwargs=dict(net_arch=[256, 256]),
-        tensorboard_log="/root/results/tensorboard/",
+        tensorboard_log=tensorboard_dir,
         seed=2,
     )
 
     print("Creating and training model")
     model = DQN(**DQN_PARAMS)
+    print("Training model")
     model.learn(
         total_timesteps=1000,
         tb_log_name=model_name,
