@@ -7,8 +7,11 @@ import gymnasium as gym
 
 from stable_baselines3 import A2C
 from stable_baselines3.common.env_util import make_vec_env
-from gymnasium import spaces
+from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.env_checker import check_env
+from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.logger import HParam
+from gymnasium import spaces
 from enum import Enum
 from robobo_interface import (
     IRobobo,
@@ -309,14 +312,50 @@ def test_stable_baselines(rob):
             break
 
 
+class HParamCallback(BaseCallback):
+    """
+    Saves the hyperparameters and metrics at the start of the training, and
+    logs them to TensorBoard.
+    """
+
+    def _on_training_start(self) -> None:
+        hparam_dict = {
+            "algorithm": self.model.__class__.__name__,
+            "learning_rate": self.model.learning_rate,
+            "n_steps": self.model.n_steps,
+            "gamma": self.model.gamma,
+            "gae_lambda": self.model.gae_lambda,
+            "ent_coef": self.model.ent_coef,
+            "vf_coef": self.model.vf_coef,
+            "max_grad_norm": self.model.max_grad_norm,
+        }
+        metric_dict = {
+            "rollout/ep_len_mean": 0,
+            "train/value_loss": 0.0,
+        }
+        self.logger.record(
+            "hparams",
+            HParam(hparam_dict, metric_dict),
+            exclude=("stdout", "log", "json", "csv"),
+        )
+
+    def _on_step(self) -> bool:
+        return True
+
+
 def train_and_run_model(rob):
     """This function trains an agent using the A2C algorithm and runs it in the
     simulation."""
     model_name = f"A2C-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    os.makedirs(f"/root/results/tensorboard/", exist_ok=True)
+    models_dir = "/root/results/models"
+    tensorboard_dir = "/root/results/tensorboard"
+    os.makedirs(models_dir, exist_ok=True)
+    os.makedirs(tensorboard_dir, exist_ok=True)
 
     def make_env():
-        return CoppeliaSimEnv(rob=rob)
+        env = CoppeliaSimEnv(rob=rob)
+        env = Monitor(env, filename=os.path.join(tensorboard_dir, model_name))
+        return env
 
     vec_env = make_vec_env(make_env, n_envs=1)
     print("Creating and training model")
@@ -326,10 +365,13 @@ def train_and_run_model(rob):
         verbose=1,
         tensorboard_log=f"/root/results/tensorboard/{model_name}",
     )
-    model.learn(total_timesteps=10_000, tb_log_name=model_name)
+    model.learn(total_timesteps=1000, tb_log_name=model_name, callback=HParamCallback())
     print("Training complete")
+    model.save(os.path.join(models_dir, model_name))
+    print(f"Model saved to {os.path.join(models_dir, model_name)}")
+
     obs = vec_env.reset()
-    n_steps = 100
+    n_steps = 1000
     print(f"Running model for {n_steps} steps")
     for i in range(n_steps):
         print("----" * 20)
