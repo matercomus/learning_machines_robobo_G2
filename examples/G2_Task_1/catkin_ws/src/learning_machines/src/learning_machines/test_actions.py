@@ -225,23 +225,19 @@ class CoppeliaSimEnv(gym.Env):
         wheel_position = self.rob.read_wheels()
         left_motor_speed = wheel_position.wheel_speed_l
         right_motor_speed = wheel_position.wheel_speed_r
-
         # Calculate the translational speed
         s_trans = left_motor_speed + right_motor_speed
-
         # Calculate the rotational speed and normalize it between 0 and 1
         s_rot = abs(left_motor_speed - right_motor_speed) / max(
             left_motor_speed, right_motor_speed, np.finfo(float).eps
         )
-
         # Get the values of all proximity sensors
         proximity_sensors = self.rob.read_irs()
-
-        # Find the value of the proximity sensor closest to an obstacle and normalize it between 0 and 1
+        # Find the value of the proximity sensor closest to an obstacle and
+        # normalize it between 0 and 1
         v_sens = np.amin(proximity_sensors) / max(
             np.amax(proximity_sensors), np.finfo(float).eps
         )
-
         # Calculate the reward
         reward = s_trans * (1 - s_rot) * (1 - v_sens)
 
@@ -263,6 +259,9 @@ class CoppeliaSimEnv(gym.Env):
         else:
             raise ValueError(f"Invalid action {action}")
 
+        if not self.rob.is_running():
+            raise RuntimeError("Simulation is not running")
+
         observation = np.array(self.rob.read_irs())
         observation = np.nan_to_num(observation, posinf=1e10)
         reward = self.calculate_reward()
@@ -270,11 +269,16 @@ class CoppeliaSimEnv(gym.Env):
         truncated = False
         info = {}
 
+        print("----" * 20)
+        print("Step")
+        print(f"Action: {action}, Observation: {observation}, Reward: {reward}")
         return (observation, reward, terminated, truncated, info)
 
     def reset(self, seed=None, options=None):
         self.rob.stop_simulation()
         self.rob.play_simulation()
+        if not self.rob.is_running():
+            raise RuntimeError("Simulation is not running")
         observation = np.array(self.rob.read_irs())
         observation = np.nan_to_num(observation, posinf=1e10)
         info = {}
@@ -373,7 +377,7 @@ def train_and_run_model(rob):
     print("Creating and training model")
     model = DQN(**DQN_PARAMS)
     model.learn(
-        total_timesteps=2000,
+        total_timesteps=1000,
         tb_log_name=model_name,
         callback=HParamCallback(params=DQN_PARAMS, model=model),
     )
@@ -394,12 +398,12 @@ def train_and_run_model(rob):
         if done:
             break
 
+    print("Stopping simulation")
     rob.stop_simulation()
 
 
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
-
         train_and_run_model(rob)
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob)
