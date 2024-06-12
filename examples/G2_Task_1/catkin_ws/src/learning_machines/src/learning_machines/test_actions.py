@@ -1,11 +1,12 @@
 import time
 import datetime
+from typing import Dict
 import pandas as pd
 import numpy as np
 import os
 import gymnasium as gym
 
-from stable_baselines3 import A2C
+from stable_baselines3 import DQN
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.env_checker import check_env
@@ -220,37 +221,29 @@ class CoppeliaSimEnv(gym.Env):
         self.previous_position = None
 
     def calculate_reward(self):
-        distance_threshold = 200
-        speed_reward = 0.1  # Reward for moving fast
-        obstacle_penalty = -1000  # Penalty for hitting an obstacle
-        idle_penalty = -1  # Penalty for staying in one spot
+        # Get the current speeds of the left and right motors
+        wheel_position = self.rob.read_wheels()
+        left_motor_speed = wheel_position.wheel_speed_l
+        right_motor_speed = wheel_position.wheel_speed_r
 
-        # Get current position
-        current_position = self.rob.get_position()
+        # Calculate the translational speed
+        s_trans = left_motor_speed + right_motor_speed
 
-        # Check if the agent hit an obstacle
-        if any(self.rob.read_irs()) > distance_threshold:
-            return obstacle_penalty
+        # Calculate the rotational speed and normalize it between 0 and 1
+        s_rot = abs(left_motor_speed - right_motor_speed) / max(
+            left_motor_speed, right_motor_speed, np.finfo(float).eps
+        )
 
-        # Check if the agent is moving
-        if (
-            self.previous_position is not None
-            and current_position == self.previous_position
-        ):
-            return idle_penalty
+        # Get the values of all proximity sensors
+        proximity_sensors = self.rob.read_irs()
 
-        # Reward the agent for moving fast
-        if self.previous_position is not None:
-            speed = (
-                (current_position.x - self.previous_position.x) ** 2
-                + (current_position.y - self.previous_position.y) ** 2
-            ) ** 0.5
-            reward = speed * speed_reward
-        else:
-            reward = 0
+        # Find the value of the proximity sensor closest to an obstacle and normalize it between 0 and 1
+        v_sens = np.amin(proximity_sensors) / max(
+            np.amax(proximity_sensors), np.finfo(float).eps
+        )
 
-        # Update previous position
-        self.previous_position = current_position
+        # Calculate the reward
+        reward = s_trans * (1 - s_rot) * (1 - v_sens)
 
         return reward
 
@@ -318,21 +311,20 @@ class HParamCallback(BaseCallback):
     logs them to TensorBoard.
     """
 
+    def __init__(self, params, model, verbose=1):
+        super(HParamCallback, self).__init__(verbose)
+        self.params = params
+        self.model = model
+
     def _on_training_start(self) -> None:
-        hparam_dict = {
-            "algorithm": self.model.__class__.__name__,
-            "learning_rate": self.model.learning_rate,
-            "n_steps": self.model.n_steps,
-            "gamma": self.model.gamma,
-            "gae_lambda": self.model.gae_lambda,
-            "ent_coef": self.model.ent_coef,
-            "vf_coef": self.model.vf_coef,
-            "max_grad_norm": self.model.max_grad_norm,
-        }
+        hparam_dict = {"algorithm": self.model.__class__.__name__}
+        hparam_dict.update(self.params)
         metric_dict = {
             "rollout/ep_len_mean": 0,
             "train/value_loss": 0.0,
         }
+        print("Logging hyperparameters and metrics")
+        print(f"Hyperparameters: {hparam_dict}\nMetrics: {metric_dict}")
         self.logger.record(
             "hparams",
             HParam(hparam_dict, metric_dict),
@@ -344,9 +336,9 @@ class HParamCallback(BaseCallback):
 
 
 def train_and_run_model(rob):
-    """This function trains an agent using the A2C algorithm and runs it in the
+    """This function trains an agent using the DQN algorithm and runs it in the
     simulation."""
-    model_name = f"A2C-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    model_name = f"DQN-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
     models_dir = "/root/results/models"
     tensorboard_dir = "/root/results/tensorboard"
     os.makedirs(models_dir, exist_ok=True)
@@ -358,20 +350,39 @@ def train_and_run_model(rob):
         return env
 
     vec_env = make_vec_env(make_env, n_envs=1)
-    print("Creating and training model")
-    model = A2C(
-        "MlpPolicy",
-        vec_env,
+
+    DQN_PARAMS = dict(
+        policy="MlpPolicy",
+        env=vec_env,
         verbose=1,
-        tensorboard_log=f"/root/results/tensorboard/{model_name}",
+        train_freq=16,
+        gradient_steps=8,
+        gamma=0.99,
+        exploration_fraction=0.2,
+        exploration_final_eps=0.07,
+        target_update_interval=600,
+        learning_starts=50,
+        buffer_size=10000,
+        batch_size=128,
+        learning_rate=4e-3,
+        policy_kwargs=dict(net_arch=[256, 256]),
+        tensorboard_log="/root/results/tensorboard/",
+        seed=2,
     )
-    model.learn(total_timesteps=1000, tb_log_name=model_name, callback=HParamCallback())
+
+    print("Creating and training model")
+    model = DQN(**DQN_PARAMS)
+    model.learn(
+        total_timesteps=2000,
+        tb_log_name=model_name,
+        callback=HParamCallback(params=DQN_PARAMS, model=model),
+    )
     print("Training complete")
     model.save(os.path.join(models_dir, model_name))
     print(f"Model saved to {os.path.join(models_dir, model_name)}")
 
     obs = vec_env.reset()
-    n_steps = 1000
+    n_steps = 100
     print(f"Running model for {n_steps} steps")
     for i in range(n_steps):
         print("----" * 20)
@@ -388,6 +399,7 @@ def train_and_run_model(rob):
 
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
+
         train_and_run_model(rob)
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob)
