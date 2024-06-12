@@ -1,4 +1,5 @@
 import time
+import csv
 import datetime
 import pandas as pd
 import numpy as np
@@ -212,8 +213,20 @@ def run_all_actions(rob: IRobobo):
     #     test_hardware(rob)
     env = train_env(rob)
     env.rob.play_simulation()
-    env.training_loop()
+    # env.training_loop()
+    env.run_trained_model()
     env.rob.stop_simulation()
+
+def reward_function_2(speed_L, speed_R, irs: list, sensor_max=200):
+    s_trans = speed_L + speed_R
+    s_rot = abs(speed_L - speed_R) / max(speed_L, speed_R)
+
+    if max(irs) >= sensor_max:
+        v_sens = 1
+    else:
+        v_sens = (max(irs) - min(irs)) / (sensor_max - min(irs))
+
+    return s_trans * (1 - s_rot) * (1 - v_sens)
 
 
 
@@ -223,19 +236,19 @@ def reward_function(speed_L, speed_R, irs: list, normalizer = 0.01):
     closest = max(irs)
 
     # Turning penalty
-    if  speed_L * speed_R < 0: # speed_L == speed_R
+    if  speed_L * speed_R < 0 and speed_L == speed_R:
         penalty_turning = (speed_L + speed_R) * 0.5
     else:
         penalty_turning = 0
 
     # Bump penalty
-    if closest != np.inf:
+    if closest == np.inf:
         penalty_bump = 0
     else:
         if closest >= 200:
-            penalty_bump = -20
+            penalty_bump = 20
         else:
-            penalty_bump = closest * normalizer * 4
+            penalty_bump = closest * normalizer * 0.5
 
     return speed_L + speed_R - penalty_turning - penalty_bump
 
@@ -267,8 +280,15 @@ class DQNAgent:
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         self.batch_size = 32
 
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
+    def save_model(self, file_name):
+        torch.save(self.model.state_dict(), file_name)
+
+    def load_model(self, file_name):
+        self.model.load_state_dict(torch.load(file_name))
+        self.model.eval()  # Set the model to evaluation mode
+
+    def remember(self, state, action, reward, next_state):
+        self.memory.append((state, action, reward, next_state))
         
     def act(self, state):
         if np.random.rand() <= self.epsilon:
@@ -278,37 +298,18 @@ class DQNAgent:
         return act_values.detach().numpy()
         
     def replay(self):
-        # minibatch = random.sample(self.memory, self.batch_size)
-        # for state, action, reward, next_state, done in minibatch:
-        #     target = reward
-        #     if not done:
-        #         next_state = torch.FloatTensor(next_state)
-        #         target = (reward + self.gamma * torch.max(self.model(next_state)).item())
-        #     state = torch.FloatTensor(state)
-        #     target_f = self.model(state)
-        #     self.optimizer.zero_grad()
-        #     loss = self.criterion(target_f, torch.FloatTensor(target))
-        #     loss.backward()
-        #     self.optimizer.step()
-        # if self.epsilon > self.epsilon_min:
-        #     self.epsilon *= self.epsilon_decay
-        if len(self.memory) < self.batch_size:
-            return
-        
         minibatch = random.sample(self.memory, self.batch_size)
-        for state, action, reward, next_state, done in minibatch:
+        for state, action, reward, next_state in minibatch:
             state = torch.FloatTensor(state)
             next_state = torch.FloatTensor(next_state)
-            target = self.model(state).detach()
-            if done:
-                target = torch.FloatTensor([reward, reward])
-            else:
-                Q_future = self.model(next_state).detach().max().item()
-                target = torch.FloatTensor([reward + self.gamma * Q_future, reward + self.gamma * Q_future])
+            target = self.model(state).detach().numpy()
+
+            Q_future = self.model(next_state).detach().max().item()
+            target[:] = reward + self.gamma * Q_future
                 
             target_f = self.model(state)
             self.optimizer.zero_grad()
-            loss = self.criterion(target_f, target)
+            loss = self.criterion(target_f, torch.FloatTensor(target))
             loss.backward()
             self.optimizer.step()
             
@@ -322,6 +323,7 @@ class train_env():
         self.state_size = 8 # Number of IR sensors
         self.action_size = 2  # Speed of left and right wheels
         self.agent = DQNAgent(self.state_size, self.action_size)
+        self.csv_file = '/root/results/data.csv'
 
     def get_state(self):
         ir_readings = self.rob.read_irs()
@@ -331,17 +333,42 @@ class train_env():
         action = self.agent.act(state)
         self.rob.move_blocking(action[0], action[1], time)
         next_state = self.rob.read_irs()
-        reward = reward_function(action[0], action[1], next_state)
-        return next_state, action, reward, False
+        reward = reward_function_2(action[0], action[1], next_state)
+        return next_state, action, reward
 
     def training_loop(self):
-        for e in range(1000):
+        for epoch in range(50):
             state = self.get_state()
-            for time in range(500):
-                next_state, action, reward, done = self.step(state)  # Implement this function based on your environment
-                self.agent.remember(state, action, reward, next_state, done)
+            for _ in range(96):
+                next_state, action, reward = self.step(state)
+                self.agent.remember(state, action, reward, next_state)
                 state = next_state
-                if done:
-                    break
+                
+                # store data
+                with open(self.csv_file, mode='a', newline='') as file:
+                    writer = csv.writer(file)
+                    writer.writerow([epoch, state, action, reward, next_state])
+
             if len(self.agent.memory) > self.agent.batch_size:
                 self.agent.replay()
+            print(f'end of {epoch} epoch')
+        
+        # Save the model after training
+        self.agent.save_model('/root/results/dqn_model.pth')
+
+    def run_trained_model(self, max_steps=200):
+        self.agent.load_model('/root/results/dqn_model.pth')  # Load the trained model
+
+        state = self.get_state()
+        total_reward = 0
+        for step in range(max_steps):
+            action = self.agent.act(state)  # Use the trained model to decide actions
+            self.rob.move_blocking(action[0], action[1], 200)
+            next_state = self.get_state()
+            reward = reward_function_2(action[0], action[1], next_state)
+            total_reward += reward
+
+            # Optionally, print or log the state, action, and reward
+            print(f'Step: {step}, State: {state}, Action: {action}, Reward: {reward}')
+            state = next_state
+            
