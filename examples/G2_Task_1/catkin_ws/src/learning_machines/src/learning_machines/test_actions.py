@@ -11,7 +11,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.logger import HParam
+from stable_baselines3.common.logger import HParam, TensorBoardOutputFormat
 from gymnasium import spaces
 from enum import Enum
 from robobo_interface import (
@@ -45,7 +45,6 @@ IR_SENSOR_INDICES = {
     "BackR": 1,
     "BackC": 6,
     "FrontLL": 7,
-    "FrontR": 3,
     "FrontRR": 5,
 }
 
@@ -219,6 +218,8 @@ class CoppeliaSimEnv(gym.Env):
         high = np.full(8, np.inf)  # 8 sensors, maximum reading is infinity
         self.observation_space = spaces.Box(low=low, high=high, dtype=np.float64)
         self.previous_position = None
+        self.observation = None
+        self.reward = None
 
     def calculate_reward(self):
         # Get the current speeds of the left and right motors
@@ -262,17 +263,19 @@ class CoppeliaSimEnv(gym.Env):
         if not self.rob.is_running():
             raise RuntimeError("Simulation is not running")
 
-        observation = np.array(self.rob.read_irs())
-        observation = np.nan_to_num(observation, posinf=1e10)
-        reward = self.calculate_reward()
+        self.observation = np.array(self.rob.read_irs())
+        self.observation = np.nan_to_num(self.observation, posinf=1e10)
+        self.reward = self.calculate_reward()
         terminated = False
         truncated = False
         info = {}
 
         print("----" * 20)
         print("Step")
-        print(f"Action: {action}\nObservation: {observation}\nReward: {reward}")
-        return (observation, reward, terminated, truncated, info)
+        print(
+            f"Action: {action}\nObservation: {self.observation}\nReward: {self.reward}"
+        )
+        return (self.observation, self.reward, terminated, truncated, info)
 
     def reset(self, seed=None, options=None):
         self.rob.stop_simulation()
@@ -315,34 +318,46 @@ class HParamCallback(BaseCallback):
     logs them to TensorBoard.
     """
 
+    def __init__(self, model, params):
+        super(HParamCallback, self).__init__()
+        self.model = model
+        self.params = params
+
+        print("HParamCallback")
+
     def _on_training_start(self) -> None:
+        output_formats = self.logger.output_formats
+        # Save reference to tensorboard formatter object
+        self.tb_formatter = next(
+            formatter
+            for formatter in output_formats
+            if isinstance(formatter, TensorBoardOutputFormat)
+        )
         hparam_dict = {
-            "algorithm": self.model.__class__.__name__,
-            "learning rate": self.model.learning_rate,
-            "gamma": self.model.gamma,
-            "train_freq": self.model.train_freq,
-            "gradient_steps": self.model.gradient_steps,
-            "exploration_fraction": self.model.exploration_fraction,
-            "exploration_final_eps": self.model.exploration_final_eps,
-            "target_update_interval": self.model.target_update_interval,
-            "learning_starts": self.model.learning_starts,
-            "buffer_size": self.model.buffer_size,
-            "batch_size": self.model.batch_size,
-            "learning_rate": self.model.learning_rate,
+            k: str(v)
+            for k, v in self.params.items()
+            if isinstance(v, (int, float, str))
         }
         metric_dict = {
             "rollout/ep_len_mean": 0,
             "train/value_loss": 0.0,
         }
-        print("Logging hyperparameters and metrics")
-        print(f"Hyperparameters: {hparam_dict}\nMetrics: {metric_dict}")
-        self.logger.record(
-            "hparams",
-            HParam(hparam_dict, metric_dict),
-            exclude=("stdout", "log", "json", "csv"),
-        )
+        self.tb_formatter.writer.add_hparams(hparam_dict, metric_dict)
 
     def _on_step(self) -> bool:
+        # Access the observation and reward from the environment
+        observation = np.array(self.training_env.envs[0].observation)
+        reward = np.array(self.training_env.envs[0].reward)
+
+        # Log each element of the observation array as a separate scalar
+        for sensor_name, index in IR_SENSOR_INDICES.items():
+            self.tb_formatter.writer.add_scalar(
+                f"observations/{sensor_name}", observation[index], self.num_timesteps
+            )
+
+        # Log the reward to TensorBoard
+        self.tb_formatter.writer.add_scalar("rewards/env", reward, self.num_timesteps)
+
         return True
 
 
@@ -351,13 +366,13 @@ def train_and_run_model(rob):
     simulation."""
     model_name = f"DQN-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
     models_dir = "/root/results/models/"
-    tensorboard_dir = "/root/results/tensorboard/"
+    tensorboard_dir = "/root/results/tensorboard4/"
     os.makedirs(models_dir, exist_ok=True)
     os.makedirs(tensorboard_dir, exist_ok=True)
 
     def make_env():
         env = CoppeliaSimEnv(rob=rob)
-        env = Monitor(env, filename=os.path.join(tensorboard_dir, model_name))
+        env = Monitor(env, filename=os.path.join(models_dir, "monitor", model_name))
         return env
 
     vec_env = make_vec_env(make_env, n_envs=1)
@@ -369,9 +384,9 @@ def train_and_run_model(rob):
         train_freq=16,
         gradient_steps=8,
         gamma=0.99,
-        exploration_fraction=0.2,
+        exploration_fraction=0.5,
         exploration_final_eps=0.07,
-        target_update_interval=600,
+        target_update_interval=64,
         learning_starts=50,
         buffer_size=10000,
         batch_size=128,
@@ -383,11 +398,13 @@ def train_and_run_model(rob):
 
     print("Creating and training model")
     model = DQN(**DQN_PARAMS)
+
     print("Training model")
     model.learn(
         total_timesteps=1000,
         tb_log_name=model_name,
-        callback=HParamCallback(params=DQN_PARAMS, model=model),
+        log_interval=10,
+        callback=HParamCallback(model=model, params=DQN_PARAMS),
     )
     print("Training complete")
     model.save(os.path.join(models_dir, model_name))
