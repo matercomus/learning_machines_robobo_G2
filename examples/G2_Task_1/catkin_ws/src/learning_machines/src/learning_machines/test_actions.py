@@ -409,15 +409,20 @@ def train_and_run_model(rob, verbose=0):
 
     model = DQN(**DQN_PARAMS)
 
-    model.learn(
-        total_timesteps=1000,  # moree
-        tb_log_name=model_name,
-        callback=HParamCallback(model=model, params=DQN_PARAMS),
-    )  # run this muktuioke time thus is one episode
+    for episode in range(5):
+        print(f"Episode {episode}")
+        model.learn(
+            total_timesteps=1000,  # moree
+            tb_log_name=model_name,
+            callback=HParamCallback(model=model, params=DQN_PARAMS),
+        )  # run this muktuioke time thus is one episode
     model.save(os.path.join(models_dir, model_name))
     if verbose:
         print("Training complete")
         print(f"Model saved to {os.path.join(models_dir, model_name)}")
+
+    # pause execution and await user input
+    input("Press Enter to test the trained model")
 
     obs = vec_env.reset()
     n_steps = 100
