@@ -6,9 +6,9 @@ import gymnasium as gym
 from stable_baselines3 import DQN
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import TensorBoardOutputFormat
+from stable_baselines3.common.env_checker import check_env
 from gymnasium import spaces
 from enum import Enum
 from robobo_interface import (
@@ -57,9 +57,11 @@ class CoppeliaSimEnv(gym.Env):
 
     metadata = {"render.modes": ["human"]}
 
-    def __init__(self, rob: "SimulationRobobo"):
+    def __init__(self, rob: "SimulationRobobo", seed=None, verbose=0):
         super(CoppeliaSimEnv, self).__init__()
         self.rob = rob
+        self.seed = seed
+        self.verbose = verbose
         # 4 actions: forward, backward, left, right
         self.action_space = spaces.Discrete(4)
         low = np.zeros(8)  # 8 sensors, all readings start at 0
@@ -94,17 +96,17 @@ class CoppeliaSimEnv(gym.Env):
 
     def step(self, action):
         speed = 50
+        duration = 200
         # Map integer action to Direction instance
         action = Direction(action)
-        # Execute one time step within the environment
         if action == Direction.FRONT:  # forward
-            self.rob.move_blocking(speed, speed, 200)
+            self.rob.move_blocking(speed, speed, duration)
         elif action == Direction.BACK:  # backward
-            self.rob.move_blocking(-speed, -speed, 200)
+            self.rob.move_blocking(-speed, -speed, duration)
         elif action == Direction.LEFT:  # left
-            self.rob.move_blocking(-speed, speed, 200)
+            self.rob.move_blocking(-speed, speed, duration)
         elif action == Direction.RIGHT:  # right
-            self.rob.move_blocking(speed, -speed, 200)
+            self.rob.move_blocking(speed, -speed, duration)
         else:
             raise ValueError(f"Invalid action {action}")
 
@@ -118,11 +120,13 @@ class CoppeliaSimEnv(gym.Env):
         truncated = False
         info = {}
 
-        print("----" * 20)
-        print("Step")
-        print(
-            f"Action: {action}\nObservation: {self.observation}\nReward: {self.reward}"
-        )
+        if self.verbose:
+            print("----" * 20)
+            print("Step")
+            print(
+                f"Action: {action}\nObservation: {self.observation}\n\
+                        Reward: {self.reward}"
+            )
         return (self.observation, self.reward, terminated, truncated, info)
 
     def reset(self, seed=None, options=None):
@@ -139,27 +143,6 @@ class CoppeliaSimEnv(gym.Env):
         self.rob.stop_simulation()
 
 
-def test_stable_baselines(rob):
-    env = CoppeliaSimEnv(rob=rob)
-    check_env(env, warn=True)
-
-    obs, _ = env.reset()
-    print("Initial observation:", obs)
-    print("Action space:", env.action_space)
-    print("Action space sample:", env.action_space.sample())
-
-    # Hardcoded go left
-    action = Direction.LEFT
-    n_steps = 100
-    for i in range(n_steps):
-        print("Step ", i)
-        observation, reward, terminated, truncated, _ = env.step(action)
-        done = terminated or truncated
-        print(f"Observation: {observation}, Reward: {reward}, Done: {done}")
-        if done:
-            break
-
-
 class HParamCallback(BaseCallback):
     """
     Saves the hyperparameters and metrics at the start of the training, and
@@ -170,8 +153,6 @@ class HParamCallback(BaseCallback):
         super(HParamCallback, self).__init__()
         self.model = model
         self.params = params
-
-        print("HParamCallback")
 
     def _on_training_start(self) -> None:
         output_formats = self.logger.output_formats
@@ -196,22 +177,23 @@ class HParamCallback(BaseCallback):
         # Access the observation and reward from the environment
         observation = np.array(self.training_env.envs[0].observation)
         reward = np.array(self.training_env.envs[0].reward)
-
-        # Log each element of the observation array as a separate scalar
         for sensor_name, index in IR_SENSOR_INDICES.items():
             self.tb_formatter.writer.add_scalar(
                 f"observations/{sensor_name}", observation[index], self.num_timesteps
             )
-
-        # Log the reward to TensorBoard
         self.tb_formatter.writer.add_scalar("rewards/env", reward, self.num_timesteps)
+
+        # Calculate the average episode length if there are completed episodes
+        if self.model.ep_info_buffer:
+            ep_len_mean = np.mean([info["l"] for info in self.model.ep_info_buffer])
+            self.tb_formatter.writer.add_scalar(
+                "rollout/ep_len_mean", ep_len_mean, self.num_timesteps
+            )
 
         return True
 
 
-def train_and_run_model(rob):
-    """This function trains an agent using the DQN algorithm and runs it in the
-    simulation."""
+def train_and_run_model(rob, verbose=0):
     model_name = f"DQN-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
     models_dir = "/root/results/models/"
     tensorboard_dir = "/root/results/tensorboard4/"
@@ -220,10 +202,12 @@ def train_and_run_model(rob):
 
     def make_env():
         env = CoppeliaSimEnv(rob=rob)
-        env = Monitor(env, filename=os.path.join(models_dir, "monitor", model_name))
+        check_env(env)
         return env
 
-    vec_env = make_vec_env(make_env, n_envs=1)
+    vec_env = make_vec_env(
+        make_env, n_envs=1, monitor_dir=os.path.join(models_dir, "monitor")
+    )
 
     DQN_PARAMS = dict(
         policy="MlpPolicy",
@@ -244,34 +228,37 @@ def train_and_run_model(rob):
         seed=2,
     )
 
-    print("Creating and training model")
+    if verbose:
+        print("Creating and training model")
+
     model = DQN(**DQN_PARAMS)
 
-    print("Training model")
     model.learn(
         total_timesteps=1000,
         tb_log_name=model_name,
-        log_interval=10,
         callback=HParamCallback(model=model, params=DQN_PARAMS),
     )
-    print("Training complete")
     model.save(os.path.join(models_dir, model_name))
-    print(f"Model saved to {os.path.join(models_dir, model_name)}")
+    if verbose:
+        print("Training complete")
+        print(f"Model saved to {os.path.join(models_dir, model_name)}")
 
     obs = vec_env.reset()
     n_steps = 100
-    print(f"Running model for {n_steps} steps")
+    print(f"Running the trained model for {n_steps} steps")
     for i in range(n_steps):
-        print("----" * 20)
-        print(f"Step {i}")
         action, _ = model.predict(obs, deterministic=True)
-        print(f"Action: {action}")
         obs, reward, done, info = vec_env.step(action)
-        print(f"Observation: {obs}\nReward: {reward}\nDone: {done}\nInfo: {info}")
+        if verbose:
+            print("----" * 20)
+            print(f"Step {i}")
+            print(f"Action: {action}")
+            print(f"Observation: {obs}\nReward: {reward}\nDone: {done}\nInfo: {info}")
         if done:
             break
 
-    print("Stopping simulation")
+    if verbose:
+        print("Stopping simulation")
     rob.stop_simulation()
 
 
