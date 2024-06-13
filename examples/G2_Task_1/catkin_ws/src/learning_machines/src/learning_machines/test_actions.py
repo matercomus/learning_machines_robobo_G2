@@ -5,7 +5,6 @@ import gymnasium as gym
 
 from stable_baselines3 import DQN
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import TensorBoardOutputFormat
 from stable_baselines3.common.env_checker import check_env
@@ -66,31 +65,51 @@ class CoppeliaSimEnv(gym.Env):
         self.action_space = spaces.Discrete(4)
         low = np.zeros(8)  # 8 sensors, all readings start at 0
         high = np.full(8, np.inf)  # 8 sensors, maximum reading is infinity
-        self.observation_space = spaces.Box(low=low, high=high, dtype=np.float64)
+        self.observation_space = spaces.Box(low=low, high=high, dtype=np.float64) # add last 3 states
+        # shoudl descrie robot and env. like whee ]l pos speed everythng also goal
         self.previous_position = None
         self.observation = None
+        # motor speeds
+        self.left_motor_speed = None
+        self.right_motor_speed = None
+        # reward stuff
+        self.s_trans = None
+        self.s_rot = None
+        self.v_sens = None
+        self.v_sens = None
         self.reward = None
 
     def calculate_reward(self):
+        # use sped and dur 
         # Get the current speeds of the left and right motors
         wheel_position = self.rob.read_wheels()
-        left_motor_speed = wheel_position.wheel_speed_l
-        right_motor_speed = wheel_position.wheel_speed_r
+        print(f"Wheel position: {wheel_position}")
+        self.left_motor_speed = wheel_position.wheel_speed_l
+        self.right_motor_speed = wheel_position.wheel_speed_r
+        # print(f"Left motor speed: {self.left_motor_speed}")
+        # print(f"Right motor speed: {self.right_motor_speed}")
+        print(f"Left motor speed: {self.rob.read_wheels().wheel_speed_l}")
+        print(f"Right motor speed: {self.rob.read_wheels().wheel_speed_r}")
         # Calculate the translational speed
-        s_trans = left_motor_speed + right_motor_speed
+        self.s_trans = self.left_motor_speed + self.right_motor_speed
         # Calculate the rotational speed and normalize it between 0 and 1
-        s_rot = abs(left_motor_speed - right_motor_speed) / max(
-            left_motor_speed, right_motor_speed, np.finfo(float).eps
+        self.s_rot = abs(self.left_motor_speed - self.right_motor_speed) / max(
+            self.left_motor_speed, self.right_motor_speed, np.finfo(float).eps
         )
         # Get the values of all proximity sensors
-        proximity_sensors = self.rob.read_irs()
+        # proximity_sensors = self.rob.read_irs()
+        proximity_sensors = self.observation
         # Find the value of the proximity sensor closest to an obstacle and
         # normalize it between 0 and 1
-        v_sens = np.amin(proximity_sensors) / max(
+        self.v_sens = np.amin(proximity_sensors) / max(
             np.amax(proximity_sensors), np.finfo(float).eps
         )
-        # Calculate the reward
-        reward = s_trans * (1 - s_rot) * (1 - v_sens)
+        # Calculate the reward make it between -1 and 1
+        reward = self.s_trans * (1 - self.s_rot) * (1 - self.v_sens)
+
+        print(
+            f"s_trans {self.s_trans}\ns_rot {self.s_rot}\nv_sens {self.v_sens}\nReward {reward}"# use addition instead
+        )
 
         return reward
 
@@ -120,13 +139,12 @@ class CoppeliaSimEnv(gym.Env):
         truncated = False
         info = {}
 
-        if self.verbose:
-            print("----" * 20)
-            print("Step")
-            print(
-                f"Action: {action}\nObservation: {self.observation}\n\
-                        Reward: {self.reward}"
-            )
+        print("----" * 20)
+        print("Step")
+        print(
+            f"Action: {action}\nObservation: {self.observation}\n\
+                    Reward: {self.reward}"
+        )
         return (self.observation, self.reward, terminated, truncated, info)
 
     def reset(self, seed=None, options=None):
@@ -155,6 +173,7 @@ class HParamCallback(BaseCallback):
         self.params = params
 
     def _on_training_start(self) -> None:
+        # set position random
         output_formats = self.logger.output_formats
         # Save reference to tensorboard formatter object
         self.tb_formatter = next(
@@ -214,11 +233,11 @@ def train_and_run_model(rob, verbose=0):
         env=vec_env,
         verbose=1,
         train_freq=16,
-        gradient_steps=8,
+        gradient_steps=-1,
         gamma=0.99,
         exploration_fraction=0.5,
         exploration_final_eps=0.07,
-        target_update_interval=64,
+        target_update_interval=10,
         learning_starts=50,
         buffer_size=10000,
         batch_size=128,
@@ -234,10 +253,10 @@ def train_and_run_model(rob, verbose=0):
     model = DQN(**DQN_PARAMS)
 
     model.learn(
-        total_timesteps=1000,
+        total_timesteps=1000, # moree
         tb_log_name=model_name,
         callback=HParamCallback(model=model, params=DQN_PARAMS),
-    )
+    ) # run this muktuioke time thus is one episode
     model.save(os.path.join(models_dir, model_name))
     if verbose:
         print("Training complete")
@@ -264,6 +283,6 @@ def train_and_run_model(rob, verbose=0):
 
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
-        train_and_run_model(rob)
+        train_and_run_model(rob, verbose=1)
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob)
