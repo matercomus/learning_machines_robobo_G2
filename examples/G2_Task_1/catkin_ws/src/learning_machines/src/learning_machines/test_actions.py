@@ -63,26 +63,50 @@ class CoppeliaSimEnv(gym.Env):
         self.verbose = verbose
         # 4 actions: forward, backward, left, right
         self.action_space = spaces.Discrete(4)
-        low = np.zeros(8)  # 8 sensors, all readings start at 0
-        high = np.full(8, np.inf)  # 8 sensors, maximum reading is infinity
-        self.observation_space = spaces.Box(
-            low=low, high=high, dtype=np.float64
-        )  # add last 3 states
-        # shoudl descrie robot and env. like whee ]l pos speed everythng also goal
-        self.previous_position = None
+        # 8 sensors + 4 new features: left wheel position, right wheel position, speed, duration
+        low = np.full(12, -np.inf)  # Allow negative values for all features
+        high = np.full(12, np.inf)
+        self.observation_space = spaces.Box(low=low, high=high, dtype=np.float64)
+        # Vars
         self.observation = None
-        # wheels
-        self.left_motor_speed = None
-        self.right_motor_speed = None
+        self.left_motor_speed = 0
+        self.right_motor_speed = 0
+        self.previous_position = None
+        self.left_wheel_pos = 0
         self.previous_left_wheel_pos = 0
+        self.right_wheel_pos = 0
         self.previous_right_wheel_pos = 0
-        # reward stuff
-        self.s_trans = None
-        self.s_rot = None
-        self.v_sens = None
-        self.reward = None
-        # action
+        self.speed = 0
+        self.duration = 0
+        # Reward stuff
+        self.s_trans = 0
+        self.s_rot = 0
+        self.v_sens = 0
+        self.reward = 0
         self.action = None
+
+    def calculate_speed(self, duration):
+        # Get the current positions of the left and right wheels
+        wheel_position = self.rob.read_wheels()
+        current_left_wheel_pos = wheel_position.wheel_pos_l
+        current_right_wheel_pos = wheel_position.wheel_pos_r
+
+        # Calculate the speeds of the left and right wheels
+        left_motor_speed = (
+            current_left_wheel_pos - self.previous_left_wheel_pos
+        ) / duration
+        right_motor_speed = (
+            current_right_wheel_pos - self.previous_right_wheel_pos
+        ) / duration
+
+        # Update the previous wheel positions
+        self.previous_left_wheel_pos = current_left_wheel_pos
+        self.previous_right_wheel_pos = current_right_wheel_pos
+
+        # Calculate the translational speed
+        speed = left_motor_speed + right_motor_speed
+
+        return speed
 
     def calculate_reward(self, duration=200):
         # Get the current positions of the left and right wheels
@@ -111,8 +135,8 @@ class CoppeliaSimEnv(gym.Env):
         )
 
         # Get the values of all proximity sensors
-        proximity_sensors = (
-            self.observation
+        proximity_sensors = np.array(
+            self.rob.read_irs()
         )  # later whe using more state info have to change this!
 
         # Find the value of the proximity sensor closest to an obstacle and
@@ -164,6 +188,27 @@ class CoppeliaSimEnv(gym.Env):
 
         self.observation = np.array(self.rob.read_irs())
         self.observation = np.nan_to_num(self.observation, posinf=1e10)
+        # Update the wheel positions and duration
+        wheel_position = self.rob.read_wheels()
+        self.left_wheel_pos = wheel_position.wheel_pos_l
+        self.right_wheel_pos = wheel_position.wheel_pos_r
+        self.duration = duration
+
+        # Update the observation with the new features
+        self.observation = np.concatenate(
+            [
+                self.observation,
+                np.array(
+                    [
+                        self.left_wheel_pos,
+                        self.right_wheel_pos,
+                        self.speed,
+                        self.duration,
+                    ]
+                ),
+            ]
+        )
+
         self.reward = self.calculate_reward(duration=duration)
         terminated = False
         truncated = False
@@ -184,6 +229,28 @@ class CoppeliaSimEnv(gym.Env):
             raise RuntimeError("Simulation is not running")
         observation = np.array(self.rob.read_irs())
         observation = np.nan_to_num(observation, posinf=1e10)
+
+        # Update the wheel positions and duration
+        wheel_position = self.rob.read_wheels()
+        self.left_wheel_pos = wheel_position.wheel_pos_l
+        self.right_wheel_pos = wheel_position.wheel_pos_r
+        self.duration = 0  # Reset the duration to 0
+
+        # Update the observation with the new features
+        observation = np.concatenate(
+            [
+                observation,
+                np.array(
+                    [
+                        self.left_wheel_pos,
+                        self.right_wheel_pos,
+                        self.speed,
+                        self.duration,
+                    ]
+                ),
+            ]
+        )
+
         info = {}
         return (observation, info)
 
