@@ -84,6 +84,9 @@ class CoppeliaSimEnv(gym.Env):
         self.v_sens = 0
         self.reward = 0
         self.action = None
+        self.actions = []
+        self.last_actions = []
+        self.action_sequence_length = 5
 
     def calculate_speed(self, duration):
         # Get the current positions of the left and right wheels
@@ -159,6 +162,16 @@ class CoppeliaSimEnv(gym.Env):
         # Calculate the reward as a weighted sum of the factors
         reward = w_trans * self.s_trans + w_rot * self.s_rot + w_sens * self.v_sens
 
+        # Penalize the reward if the current sequence of actions is the same as the last sequence
+        if (
+            len(self.actions) >= 2 * self.action_sequence_length
+            and self.actions[-self.action_sequence_length :]
+            == self.actions[
+                -2 * self.action_sequence_length : -self.action_sequence_length
+            ]
+        ):
+            reward -= 0.1
+
         # Ensure the reward is between -1 and 1
         reward = max(min(reward, 1), -1)
 
@@ -182,10 +195,11 @@ class CoppeliaSimEnv(gym.Env):
             self.rob.move_blocking(speed, -speed, duration)
         else:
             raise ValueError(f"Invalid action {action}")
+
         self.action = action
+        self.actions.append(action)
         if not self.rob.is_running():
             raise RuntimeError("Simulation is not running")
-
         self.observation = np.array(self.rob.read_irs())
         self.observation = np.nan_to_num(self.observation, posinf=1e10)
         # Update the wheel positions and duration
@@ -210,6 +224,10 @@ class CoppeliaSimEnv(gym.Env):
         )
 
         self.reward = self.calculate_reward(duration=duration)
+        # update last actions
+        if len(self.actions) > self.action_sequence_length:
+            self.last_actions = self.actions[-self.action_sequence_length :]
+
         terminated = False
         truncated = False
         info = {}
@@ -374,7 +392,7 @@ def train_and_run_model(rob, verbose=0):
         train_freq=16,
         gradient_steps=-1,
         gamma=0.99,
-        exploration_fraction=0.5,
+        exploration_fraction=0.3,
         exploration_final_eps=0.07,
         target_update_interval=10,
         learning_starts=50,
