@@ -65,52 +65,82 @@ class CoppeliaSimEnv(gym.Env):
         self.action_space = spaces.Discrete(4)
         low = np.zeros(8)  # 8 sensors, all readings start at 0
         high = np.full(8, np.inf)  # 8 sensors, maximum reading is infinity
-        self.observation_space = spaces.Box(low=low, high=high, dtype=np.float64) # add last 3 states
+        self.observation_space = spaces.Box(
+            low=low, high=high, dtype=np.float64
+        )  # add last 3 states
         # shoudl descrie robot and env. like whee ]l pos speed everythng also goal
         self.previous_position = None
         self.observation = None
-        # motor speeds
+        # wheels
         self.left_motor_speed = None
         self.right_motor_speed = None
+        self.previous_left_wheel_pos = 0
+        self.previous_right_wheel_pos = 0
         # reward stuff
         self.s_trans = None
         self.s_rot = None
         self.v_sens = None
-        self.v_sens = None
         self.reward = None
+        # action
+        self.action = None
 
-    def calculate_reward(self):
-        # use sped and dur 
-        # Get the current speeds of the left and right motors
+    def calculate_reward(self, duration=200):
+        # Get the current positions of the left and right wheels
         wheel_position = self.rob.read_wheels()
-        print(f"Wheel position: {wheel_position}")
-        self.left_motor_speed = wheel_position.wheel_speed_l
-        self.right_motor_speed = wheel_position.wheel_speed_r
-        # print(f"Left motor speed: {self.left_motor_speed}")
-        # print(f"Right motor speed: {self.right_motor_speed}")
-        print(f"Left motor speed: {self.rob.read_wheels().wheel_speed_l}")
-        print(f"Right motor speed: {self.rob.read_wheels().wheel_speed_r}")
+        current_left_wheel_pos = wheel_position.wheel_pos_l
+        current_right_wheel_pos = wheel_position.wheel_pos_r
+
+        # Calculate the speeds of the left and right wheels
+        self.left_motor_speed = (
+            current_left_wheel_pos - self.previous_left_wheel_pos
+        ) / duration
+        self.right_motor_speed = (
+            current_right_wheel_pos - self.previous_right_wheel_pos
+        ) / duration
+
+        # Update the previous wheel positions
+        self.previous_left_wheel_pos = current_left_wheel_pos
+        self.previous_right_wheel_pos = current_right_wheel_pos
+
         # Calculate the translational speed
         self.s_trans = self.left_motor_speed + self.right_motor_speed
+
         # Calculate the rotational speed and normalize it between 0 and 1
         self.s_rot = abs(self.left_motor_speed - self.right_motor_speed) / max(
             self.left_motor_speed, self.right_motor_speed, np.finfo(float).eps
         )
+
         # Get the values of all proximity sensors
-        # proximity_sensors = self.rob.read_irs()
-        proximity_sensors = self.observation
+        proximity_sensors = (
+            self.observation
+        )  # later whe using more state info have to change this!
+
         # Find the value of the proximity sensor closest to an obstacle and
         # normalize it between 0 and 1
         self.v_sens = np.amin(proximity_sensors) / max(
             np.amax(proximity_sensors), np.finfo(float).eps
         )
-        # Calculate the reward make it between -1 and 1
-        reward = self.s_trans * (1 - self.s_rot) * (1 - self.v_sens)
+
+        # Normalize each factor to be between 0 and 1
+        max_speed = 100
+        self.s_trans /= 2 * max_speed
+        self.s_rot = 1 - self.s_rot
+        self.v_sens = 1 - self.v_sens
+
+        # Define weights for each factor
+        w_trans = 0.5  # weight for translational speed
+        w_rot = 0.3  # weight for rotational speed
+        w_sens = 0.2  # weight for proximity sensor
+
+        # Calculate the reward as a weighted sum of the factors
+        reward = w_trans * self.s_trans + w_rot * self.s_rot + w_sens * self.v_sens
+
+        # Ensure the reward is between -1 and 1
+        reward = max(min(reward, 1), -1)
 
         print(
-            f"s_trans {self.s_trans}\ns_rot {self.s_rot}\nv_sens {self.v_sens}\nReward {reward}"# use addition instead
+            f"Reward: {self.reward}\ns_trans: {self.s_trans}\ns_rot: {self.s_rot}\nv_sens: {self.v_sens}\n"
         )
-
         return reward
 
     def step(self, action):
@@ -128,13 +158,13 @@ class CoppeliaSimEnv(gym.Env):
             self.rob.move_blocking(speed, -speed, duration)
         else:
             raise ValueError(f"Invalid action {action}")
-
+        self.action = action
         if not self.rob.is_running():
             raise RuntimeError("Simulation is not running")
 
         self.observation = np.array(self.rob.read_irs())
         self.observation = np.nan_to_num(self.observation, posinf=1e10)
-        self.reward = self.calculate_reward()
+        self.reward = self.calculate_reward(duration=duration)
         terminated = False
         truncated = False
         info = {}
@@ -171,6 +201,7 @@ class HParamCallback(BaseCallback):
         super(HParamCallback, self).__init__()
         self.model = model
         self.params = params
+        self.actions = []
 
     def _on_training_start(self) -> None:
         # set position random
@@ -192,22 +223,63 @@ class HParamCallback(BaseCallback):
         }
         self.tb_formatter.writer.add_hparams(hparam_dict, metric_dict)
 
-    def _on_step(self) -> bool:
-        # Access the observation and reward from the environment
+    def _log_observations(self):
         observation = np.array(self.training_env.envs[0].observation)
-        reward = np.array(self.training_env.envs[0].reward)
+        left_motor_speed = np.array(self.training_env.envs[0].left_motor_speed)
+        right_motor_speed = np.array(self.training_env.envs[0].right_motor_speed)
+
         for sensor_name, index in IR_SENSOR_INDICES.items():
             self.tb_formatter.writer.add_scalar(
                 f"observations/{sensor_name}", observation[index], self.num_timesteps
             )
+        self.tb_formatter.writer.add_scalar(
+            "observations/left_motor_speed", left_motor_speed, self.num_timesteps
+        )
+        self.tb_formatter.writer.add_scalar(
+            "observations/right_motor_speed", right_motor_speed, self.num_timesteps
+        )
+
+    def _log_rewards(self):
+        s_trans = np.array(self.training_env.envs[0].s_trans)
+        s_rot = np.array(self.training_env.envs[0].s_rot)
+        v_sens = np.array(self.training_env.envs[0].v_sens)
+        reward = np.array(self.training_env.envs[0].reward)
+
+        self.tb_formatter.writer.add_scalar(
+            "rewards/s_trans", s_trans, self.num_timesteps
+        )
+        self.tb_formatter.writer.add_scalar("rewards/s_rot", s_rot, self.num_timesteps)
+        self.tb_formatter.writer.add_scalar(
+            "rewards/v_sens", v_sens, self.num_timesteps
+        )
         self.tb_formatter.writer.add_scalar("rewards/env", reward, self.num_timesteps)
 
-        # Calculate the average episode length if there are completed episodes
+    def _log_action(self):
+        action = self.training_env.envs[0].action
+        # Convert the Direction enum to its integer value
+        action_value = action.value if isinstance(action, Direction) else action
+        self.tb_formatter.writer.add_scalar(
+            "actions/action", action_value, self.num_timesteps
+        )
+        # Add the action to the list of actions
+        self.actions.append(action_value)
+        # Log a histogram of actions
+        self.tb_formatter.writer.add_histogram(
+            "actions/histogram", np.array(self.actions), self.num_timesteps
+        )
+
+    def _log_episode_length(self):
         if self.model.ep_info_buffer:
             ep_len_mean = np.mean([info["l"] for info in self.model.ep_info_buffer])
             self.tb_formatter.writer.add_scalar(
                 "rollout/ep_len_mean", ep_len_mean, self.num_timesteps
             )
+
+    def _on_step(self) -> bool:
+        self._log_observations()
+        self._log_rewards()
+        self._log_action()
+        self._log_episode_length()
 
         return True
 
@@ -253,10 +325,10 @@ def train_and_run_model(rob, verbose=0):
     model = DQN(**DQN_PARAMS)
 
     model.learn(
-        total_timesteps=1000, # moree
+        total_timesteps=1000,  # moree
         tb_log_name=model_name,
         callback=HParamCallback(model=model, params=DQN_PARAMS),
-    ) # run this muktuioke time thus is one episode
+    )  # run this muktuioke time thus is one episode
     model.save(os.path.join(models_dir, model_name))
     if verbose:
         print("Training complete")
