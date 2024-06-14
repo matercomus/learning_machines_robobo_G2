@@ -139,15 +139,15 @@ class CoppeliaSimEnv(gym.Env):
         self.s_trans = self.left_motor_speed + self.right_motor_speed
 
         # Calculate the rotational speed and normalize it between 0 and 1
-        self.s_rot = abs(abs(self.left_motor_speed - self.right_motor_speed) / max(
-            self.left_motor_speed, self.right_motor_speed, np.finfo(float).eps
-        ))
+        self.s_rot = abs(
+            abs(self.left_motor_speed - self.right_motor_speed)
+            / max(self.left_motor_speed, self.right_motor_speed, np.finfo(float).eps)
+        )
 
         # Get the values of all proximity sensors
-        proximity_sensors = np.array(
-            self.rob.read_irs()
-        )  # later whe using more state info have to change this!
-
+        proximity_sensors = np.array(self.rob.read_irs())
+        # Set all values below 200 to 0
+        proximity_sensors = np.where(proximity_sensors < 200, 0, proximity_sensors)
         # Find the value of the proximity sensor closest to an obstacle and
         # normalize it between 0 and 1
         self.v_sens = 1 - np.amin(proximity_sensors) / max(
@@ -161,9 +161,9 @@ class CoppeliaSimEnv(gym.Env):
         self.v_sens = 1 - self.v_sens
 
         # Define weights for each factor
-        w_trans = 0.7  # weight for translational speed
+        w_trans = 0.5  # weight for translational speed
         w_rot = 0.1  # weight for rotational speed
-        w_sens = 0.2  # weight for proximity sensor
+        w_sens = 0.4  # weight for proximity sensor
 
         # Calculate the reward as a weighted sum of the factors
         reward = w_trans * self.s_trans + w_rot * self.s_rot + w_sens * self.v_sens
@@ -397,61 +397,60 @@ os.makedirs(model_dir, exist_ok=True)
 os.makedirs(tensorboard_dir, exist_ok=True)
 
 
-def train_model(rob, n_episodes=10, load_model=False, model_name=None, verbose=0):
+def train_model(rob, n_episodes=50, load_model=False, model_name=None, verbose=0):
+    def make_env():
+        env = CoppeliaSimEnv(rob=rob)
+        check_env(env)
+        return env
+
+    vec_env = make_vec_env(
+        make_env, n_envs=1, monitor_dir=os.path.join(model_dir, "monitor")
+    )
+    DQN_PARAMS = dict(
+        policy="MlpPolicy",
+        env=vec_env,
+        verbose=1,
+        train_freq=16,
+        gradient_steps=-1,
+        gamma=0.99,
+        exploration_fraction=0.3,
+        exploration_final_eps=0.07,
+        target_update_interval=10,
+        learning_starts=50,
+        buffer_size=10000,
+        batch_size=128,
+        learning_rate=4e-3,
+        policy_kwargs=dict(net_arch=[256, 256]),
+        tensorboard_log=tensorboard_dir,
+        seed=2,
+    )
     if load_model:
         if model_name is None:
             raise ValueError("model_name must be provided if load_model is True")
         model_path = os.path.join(model_dir, model_name)
         if verbose:
             print(f"Loading model from {model_path}")
-        model = DQN.load(model_path)
+        model = DQN.load(model_path, env=vec_env)
     else:
         model_name = f"DQN-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
-
-        def make_env():
-            env = CoppeliaSimEnv(rob=rob)
-            check_env(env)
-            return env
-
-        vec_env = make_vec_env(
-            make_env, n_envs=1, monitor_dir=os.path.join(model_dir, "monitor")
-        )
-
-        DQN_PARAMS = dict(
-            policy="MlpPolicy",
-            env=vec_env,
-            verbose=1,
-            train_freq=16,
-            gradient_steps=-1,
-            gamma=0.99,
-            exploration_fraction=0.3,
-            exploration_final_eps=0.07,
-            target_update_interval=10,
-            learning_starts=50,
-            buffer_size=10000,
-            batch_size=128,
-            learning_rate=4e-3,
-            policy_kwargs=dict(net_arch=[256, 256]),
-            tensorboard_log=tensorboard_dir,
-            seed=2,
-        )
 
         if verbose:
             print("Creating and training model")
 
         model = DQN(**DQN_PARAMS)
 
-        for episode in range(n_episodes):
-            print(f"Episode {episode}")
-            model.learn(
-                total_timesteps=1000,
-                tb_log_name=model_name,
-                callback=HParamCallback(model=model, params=DQN_PARAMS),
-            )
-            model.save(os.path.join(model_dir, model_name))
-            if verbose:
-                print(f"Episode {episode} training complete")
-                print(f"Model saved to {os.path.join(model_dir, model_name)}")
+    print(f"Training model {model_name}")
+    for episode in range(n_episodes):
+        print(f"Episode {episode}")
+        model.learn(
+            total_timesteps=1000,
+            tb_log_name=model_name,
+            callback=HParamCallback(model=model, params=DQN_PARAMS),
+        )
+        model.save(os.path.join(model_dir, model_name))
+        if verbose:
+            print(f"Episode {episode} training complete")
+            print(f"Model saved to {os.path.join(model_dir, model_name)}")
 
     return model
 
@@ -468,7 +467,7 @@ def run_model(rob, model=None, model_name=None, vec_env=None, n_steps=100, verbo
     if vec_env is None:
         vec_env = make_vec_env(
             lambda: CoppeliaSimEnv(rob=rob),
-            n_envs=1,
+            n_envs=2,
             monitor_dir=os.path.join(model_dir, "monitor"),
         )
 
@@ -500,7 +499,13 @@ def train_and_run_model(rob, verbose=0):
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
         # train_and_run_model(rob, verbose=1)
-        train_model(rob, n_episodes=10, verbose=1)
+        train_model(
+            rob,
+            n_episodes=50,
+            verbose=1,
+            load_model=True,
+            model_name="DQN-20240614-020415",
+        )
         # run_model(rob, model_name="DQN-20240613-172051", n_steps=100, verbose=1)
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob)
