@@ -139,9 +139,9 @@ class CoppeliaSimEnv(gym.Env):
         self.s_trans = self.left_motor_speed + self.right_motor_speed
 
         # Calculate the rotational speed and normalize it between 0 and 1
-        self.s_rot = abs(self.left_motor_speed - self.right_motor_speed) / max(
+        self.s_rot = abs(abs(self.left_motor_speed - self.right_motor_speed) / max(
             self.left_motor_speed, self.right_motor_speed, np.finfo(float).eps
-        )
+        ))
 
         # Get the values of all proximity sensors
         proximity_sensors = np.array(
@@ -150,7 +150,7 @@ class CoppeliaSimEnv(gym.Env):
 
         # Find the value of the proximity sensor closest to an obstacle and
         # normalize it between 0 and 1
-        self.v_sens = np.amin(proximity_sensors) / max(
+        self.v_sens = 1 - np.amin(proximity_sensors) / max(
             np.amax(proximity_sensors), np.finfo(float).eps
         )
 
@@ -161,8 +161,8 @@ class CoppeliaSimEnv(gym.Env):
         self.v_sens = 1 - self.v_sens
 
         # Define weights for each factor
-        w_trans = 0.5  # weight for translational speed
-        w_rot = 0.3  # weight for rotational speed
+        w_trans = 0.7  # weight for translational speed
+        w_rot = 0.1  # weight for rotational speed
         w_sens = 0.2  # weight for proximity sensor
 
         # Calculate the reward as a weighted sum of the factors
@@ -176,7 +176,7 @@ class CoppeliaSimEnv(gym.Env):
                 -2 * self.action_sequence_length : -self.action_sequence_length
             ]
         ):
-            reward -= 0.1
+            reward -= 0.5
 
         # Ensure the reward is between -1 and 1
         reward = max(min(reward, 1), -1)
@@ -238,19 +238,20 @@ class CoppeliaSimEnv(gym.Env):
         truncated = False
         info = {}
 
-        print("----" * 20)
-        print("Step")
-        print(
-            f"Action: {action}\nObservation: {self.observation}\n\
-                    Reward: {self.reward}"
-        )
         # Update the past observations
         self.past_observations.pop(0)
         self.past_observations.append(self.observation)
+        self.observation = np.concatenate(self.past_observations + [self.observation])
 
-        # Include the past observations in the returned observation
+        if self.verbose:
+            print("----" * 20)
+            print("Step")
+            print(
+                f"Action: {action}\nObservation: {self.observation}\nReward: {self.reward}"
+            )
+
         return (
-            np.concatenate(self.past_observations + [self.observation]),
+            self.observation,
             self.reward,
             terminated,
             truncated,
@@ -396,7 +397,7 @@ os.makedirs(model_dir, exist_ok=True)
 os.makedirs(tensorboard_dir, exist_ok=True)
 
 
-def train_model(rob, n_episodes=20, load_model=False, model_name=None, verbose=0):
+def train_model(rob, n_episodes=10, load_model=False, model_name=None, verbose=0):
     if load_model:
         if model_name is None:
             raise ValueError("model_name must be provided if load_model is True")
@@ -443,19 +444,19 @@ def train_model(rob, n_episodes=20, load_model=False, model_name=None, verbose=0
         for episode in range(n_episodes):
             print(f"Episode {episode}")
             model.learn(
-                total_timesteps=10_000,
+                total_timesteps=1000,
                 tb_log_name=model_name,
                 callback=HParamCallback(model=model, params=DQN_PARAMS),
             )
-        model.save(os.path.join(model_dir, model_name))
-        if verbose:
-            print("Training complete")
-            print(f"Model saved to {os.path.join(model_dir, model_name)}")
+            model.save(os.path.join(model_dir, model_name))
+            if verbose:
+                print(f"Episode {episode} training complete")
+                print(f"Model saved to {os.path.join(model_dir, model_name)}")
 
     return model
 
 
-def run_model(rob, model=None, model_name=None, vec_env=None, n_steps=100, verbose=0):
+def run_model(rob, model=None, model_name=None, vec_env=None, n_steps=100, verbose=1):
     if model is None:
         if model_name is None:
             raise ValueError("Either a model or a model_name must be provided")
@@ -499,7 +500,7 @@ def train_and_run_model(rob, verbose=0):
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
         # train_and_run_model(rob, verbose=1)
-        train_model(rob, n_episodes=20, verbose=1)
+        train_model(rob, n_episodes=10, verbose=1)
         # run_model(rob, model_name="DQN-20240613-172051", n_steps=100, verbose=1)
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob)
