@@ -45,10 +45,6 @@ IR_SENSOR_INDICES = {
 }
 
 
-def test_hardware(rob: "HardwareRobobo"):
-    raise NotImplementedError("Hardwareis not implemented yet")
-
-
 class CoppeliaSimEnv(gym.Env):
     """
     Custom Environment that follows gym interface
@@ -138,57 +134,37 @@ class CoppeliaSimEnv(gym.Env):
         # Calculate the translational speed
         self.s_trans = self.left_motor_speed + self.right_motor_speed
 
-        # Calculate the rotational speed and normalize it between 0 and 1
-        self.s_rot = abs(
-            abs(self.left_motor_speed - self.right_motor_speed)
-            / max(self.left_motor_speed, self.right_motor_speed, np.finfo(float).eps)
-        )
+        # Calculate the rotational speed
+        self.s_rot = abs(self.left_motor_speed - self.right_motor_speed)
 
         # Get the values of all proximity sensors
         proximity_sensors = np.array(self.rob.read_irs())
-        # Set all values below 200 to 0
-        proximity_sensors = np.where(proximity_sensors < 200, 0, proximity_sensors)
-        # Find the value of the proximity sensor closest to an obstacle and
-        # normalize it between 0 and 1
-        self.v_sens = 1 - np.amin(proximity_sensors) / max(
-            np.amax(proximity_sensors), np.finfo(float).eps
-        )
 
-        # Normalize each factor to be between 0 and 1
-        max_speed = 100
-        self.s_trans /= 2 * max_speed
-        self.s_rot = 1 - self.s_rot
-        self.v_sens = 1 - self.v_sens
+        # Set a threshold for the IR readings
+        ir_threshold = 200
+
+        # Penalize the reward if any IR reading is over the threshold
+        self.v_sens = np.sum(proximity_sensors > ir_threshold)
 
         # Define weights for each factor
         w_trans = 0.5  # weight for translational speed
-        w_rot = 0.1  # weight for rotational speed
-        w_sens = 0.4  # weight for proximity sensor
+        w_rot = 0.2  # weight for rotational speed
+        w_ir = 0.3  # weight for IR penalty
 
         # Calculate the reward as a weighted sum of the factors
-        reward = w_trans * self.s_trans + w_rot * self.s_rot + w_sens * self.v_sens
-
-        # Penalize the reward if the current sequence of actions is the same as the last sequence
-        if (
-            len(self.actions) >= 2 * self.action_sequence_length
-            and self.actions[-self.action_sequence_length :]
-            == self.actions[
-                -2 * self.action_sequence_length : -self.action_sequence_length
-            ]
-        ):
-            reward -= 0.5
+        reward = w_trans * self.s_trans - w_rot * self.s_rot - w_ir * self.v_sens
 
         # Ensure the reward is between -1 and 1
-        reward = max(min(reward, 1), -1)
+        reward = np.clip(reward, -1, 1)
 
         print(
-            f"Reward: {self.reward}\ns_trans: {self.s_trans}\ns_rot: {self.s_rot}\nv_sens: {self.v_sens}\n"
+            f"Reward: {reward}\ns_trans: {self.s_trans}\ns_rot: {self.s_rot}\nv_sens: {self.v_sens}\n"
         )
         return reward
 
     def step(self, action):
         speed = 50
-        duration = 200
+        duration = 300
         # Map integer action to Direction instance
         action = Direction(action)
         if action == Direction.FRONT:  # forward
@@ -204,7 +180,8 @@ class CoppeliaSimEnv(gym.Env):
 
         self.action = action
         self.actions.append(action)
-        if not self.rob.is_running():
+
+        if isinstance(self.rob, SimulationRobobo) and not self.rob.is_running():
             raise RuntimeError("Simulation is not running")
         self.observation = np.array(self.rob.read_irs())
         self.observation = np.nan_to_num(self.observation, posinf=1e10)
@@ -259,9 +236,10 @@ class CoppeliaSimEnv(gym.Env):
         )
 
     def reset(self, seed=None, options=None):
-        self.rob.stop_simulation()
-        self.rob.play_simulation()
-        if not self.rob.is_running():
+        if isinstance(self.rob, SimulationRobobo):
+            self.rob.stop_simulation()
+            self.rob.play_simulation()
+        if isinstance(self.rob, SimulationRobobo) and not self.rob.is_running():
             raise RuntimeError("Simulation is not running")
         observation = np.array(self.rob.read_irs())
         observation = np.nan_to_num(observation, posinf=1e10)
@@ -295,7 +273,8 @@ class CoppeliaSimEnv(gym.Env):
         return np.concatenate(self.past_observations + [observation]), info
 
     def close(self):
-        self.rob.stop_simulation()
+        if isinstance(self.rob, SimulationRobobo):
+            self.rob.stop_simulation()
 
 
 class HParamCallback(BaseCallback):
@@ -397,14 +376,22 @@ os.makedirs(model_dir, exist_ok=True)
 os.makedirs(tensorboard_dir, exist_ok=True)
 
 
-def train_model(rob, n_episodes=50, load_model=False, model_name=None, verbose=0):
+def train_model(
+    rob,
+    n_episodes=50,
+    time_steps_per_episode=100,
+    load_model=False,
+    model_name=None,
+    n_envs=1,
+    verbose=0,
+):
     def make_env():
         env = CoppeliaSimEnv(rob=rob)
         check_env(env)
         return env
 
     vec_env = make_vec_env(
-        make_env, n_envs=1, monitor_dir=os.path.join(model_dir, "monitor")
+        make_env, n_envs=n_envs, monitor_dir=os.path.join(model_dir, "monitor")
     )
     DQN_PARAMS = dict(
         policy="MlpPolicy",
@@ -443,7 +430,7 @@ def train_model(rob, n_episodes=50, load_model=False, model_name=None, verbose=0
     for episode in range(n_episodes):
         print(f"Episode {episode}")
         model.learn(
-            total_timesteps=1000,
+            total_timesteps=time_steps_per_episode,
             tb_log_name=model_name,
             callback=HParamCallback(model=model, params=DQN_PARAMS),
         )
@@ -471,19 +458,17 @@ def run_model(rob, model=None, model_name=None, vec_env=None, n_steps=100, verbo
             monitor_dir=os.path.join(model_dir, "monitor"),
         )
 
+    obs = vec_env.reset()
     for step in range(n_steps):
         print(f"Step {step}/{n_steps}")
-        obs = vec_env.reset()
         action, _ = model.predict(obs, deterministic=True)
         obs, reward, done, info = vec_env.step(action)
-        if verbose:
-            print("----" * 20)
-            print(f"Action: {action}")
-            print(f"Observation: {obs}\nReward: {reward}\nDone: {done}\nInfo: {info}")
+        print(f"Action: {action}")
 
     if verbose:
         print("Stopping simulation")
-    rob.stop_simulation()
+    if isinstance(rob, SimulationRobobo):
+        rob.stop_simulation()
 
 
 def train_and_run_model(rob, verbose=0):
@@ -496,16 +481,53 @@ def train_and_run_model(rob, verbose=0):
     run_model(rob, model, vec_env, verbose=verbose)
 
 
+def test_hardware(rob: "HardwareRobobo", model_name: str, n_steps: int = None):
+    # Load the model
+    model_path = os.path.join(model_dir, model_name)
+    model = DQN.load(model_path)
+
+    # Create the environment
+    vec_env = make_vec_env(
+        lambda: CoppeliaSimEnv(rob=rob),
+        n_envs=1,
+        monitor_dir=os.path.join(model_dir, "monitor"),
+    )
+
+    # Reset the environment
+    obs = vec_env.reset()
+
+    # If n_steps is not provided, run indefinitely
+    if n_steps is None:
+        step = 0
+        while True:
+            print(f"Step {step}")
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, done, info = vec_env.step(action)
+            step += 1
+            print(f"Action: {action}")
+    else:
+        for step in range(n_steps):
+            print(f"Step {step}/{n_steps}")
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, done, info = vec_env.step(action)
+            print(f"Action: {action}")
+
+    print("Stopping simulation")
+
+
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
         # train_and_run_model(rob, verbose=1)
         train_model(
             rob,
-            n_episodes=50,
+            n_episodes=25,
+            time_steps_per_episode=200,
             verbose=1,
-            load_model=True,
-            model_name="DQN-20240614-020415",
+            load_model=False,
+            # model_name="DQN-20240614-020415_easy_50ep1kts",
         )
-        # run_model(rob, model_name="DQN-20240613-172051", n_steps=100, verbose=1)
+        # run_model(
+        #     rob, model_name="DQN-20240614-020415_easy_50ep1kts", n_steps=200, verbose=1
+        # )
     elif isinstance(rob, HardwareRobobo):
-        test_hardware(rob)
+        test_hardware(rob, "DQN-20240614-020415_easy_50ep1kts_original", n_steps=200)
