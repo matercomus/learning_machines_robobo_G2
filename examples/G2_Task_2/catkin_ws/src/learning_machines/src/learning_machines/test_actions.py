@@ -2,6 +2,8 @@ import datetime
 import numpy as np
 import os
 import gymnasium as gym
+import cv2
+import time
 
 from stable_baselines3 import DQN
 from stable_baselines3.common.env_util import make_vec_env
@@ -17,6 +19,14 @@ from robobo_interface import (
 )
 
 # idea: use camera separate it int lrf and calc pxels to detect objects or obstacles?
+model_dir = "/root/results/models/"
+tensorboard_dir = "/root/results/tensorboard6/"
+image_dir = "/root/results/images"
+image_run_dir = os.path.join(image_dir, time.strftime("%Y%m%d-%H%M"))
+os.makedirs(model_dir, exist_ok=True)
+os.makedirs(tensorboard_dir, exist_ok=True)
+os.makedirs(image_dir, exist_ok=True)
+os.makedirs(image_run_dir, exist_ok=True)
 
 
 class Direction(Enum):
@@ -62,16 +72,23 @@ class CoppeliaSimEnv(gym.Env):
 
         # 4 actions: forward, backward, left, right
         self.action_space = spaces.Discrete(4)
-        # Multiply by 4 to include the current state and the last three states
-        low = np.full(12 * 4, -np.inf)  # Allow negative values for all features
-        high = np.full(12 * 4, np.inf)
-        self.observation_space = spaces.Box(low=low, high=high, dtype=np.float64)
+        self.image_shape = (64, 64, 3)
+        # Define the observation space for the image
+        self.image_space = spaces.Box(
+            low=0, high=255, shape=self.image_shape, dtype=np.uint8
+        )
+        low = np.full(12, -np.inf)  # Allow negative values for all features
+        high = np.full(12, np.inf)
+        self.sensor_space = spaces.Box(low=low, high=high, dtype=np.float64)
 
-        # Initialize the past observations to zeros
-        self.past_observations = [np.zeros(12) for _ in range(3)]
+        # Combine the sensor and image spaces into the observation space
+        self.observation_space = spaces.Dict(
+            {"vector": self.sensor_space, "image": self.image_space}
+        )
 
         # Vars
         self.observation = None
+        self.ir_readings = None
         self.left_motor_speed = 0
         self.right_motor_speed = 0
         self.previous_position = None
@@ -81,6 +98,7 @@ class CoppeliaSimEnv(gym.Env):
         self.previous_right_wheel_pos = 0
         self.speed = 0
         self.duration = 0
+        self.image_counter = 0
 
         # Reward stuff
         self.s_trans = 0
@@ -91,6 +109,7 @@ class CoppeliaSimEnv(gym.Env):
         self.actions = []
         self.last_actions = []
         self.action_sequence_length = 5
+
         # Exploration reward stuff
         self.f_exp = 0
         self.grid_size = (1000, 1000)
@@ -181,6 +200,21 @@ class CoppeliaSimEnv(gym.Env):
         print(f"Reward: {reward}")
         return reward
 
+    def process_image(self, image, save_image=False):
+        # Resize the image to 64x64 pixels
+        image = cv2.resize(image, (64, 64))
+        # Flip the image
+        flipped_image = cv2.flip(image, 0)
+
+        if save_image:
+            cv2.imwrite(
+                os.path.join(image_run_dir, f"image_{self.image_counter}.png"),
+                flipped_image,
+            )
+            self.image_counter += 1  # Increment the counter
+
+        return image
+
     def step(self, action):
         speed = 50
         duration = 300
@@ -202,8 +236,8 @@ class CoppeliaSimEnv(gym.Env):
 
         if isinstance(self.rob, SimulationRobobo) and not self.rob.is_running():
             raise RuntimeError("Simulation is not running")
-        self.observation = np.array(self.rob.read_irs())
-        self.observation = np.nan_to_num(self.observation, posinf=1e10)
+        self.ir_readings = np.array(self.rob.read_irs())
+        self.ir_readings = np.nan_to_num(self.ir_readings, posinf=1e10)
         # Update the wheel positions and duration
         wheel_position = self.rob.read_wheels()
         self.left_wheel_pos = wheel_position.wheel_pos_l
@@ -215,34 +249,32 @@ class CoppeliaSimEnv(gym.Env):
         cell_x, cell_y = int(x), int(y)
         self.grid[cell_x][cell_y] = 1
 
-        # Update the observation with the new features
-        self.observation = np.concatenate(
-            [
-                self.observation,
-                np.array(
-                    [
-                        self.left_wheel_pos,
-                        self.right_wheel_pos,
-                        self.speed,
-                        self.duration,
-                    ]
-                ),
-            ]
-        )
+        image = self.rob.get_image_front()
+        image = self.process_image(image, save_image=True)
+
+        # Update the observation with the new features and the image
+        self.observation = {
+            "vector": np.concatenate(
+                [
+                    self.ir_readings,
+                    np.array(
+                        [
+                            self.left_wheel_pos,
+                            self.right_wheel_pos,
+                            self.speed,
+                            self.duration,
+                        ]
+                    ),
+                ]
+            ),
+            "image": image,
+        }
 
         self.reward = self.calculate_reward(duration=duration)
-        # update last actions
-        if len(self.actions) > self.action_sequence_length:
-            self.last_actions = self.actions[-self.action_sequence_length :]
 
         terminated = False  # Idea, terminate if robot gets stuc
         truncated = False
         info = {}
-
-        # Update the past observations
-        self.past_observations.pop(0)
-        self.past_observations.append(self.observation)
-        self.observation = np.concatenate(self.past_observations + [self.observation])
 
         if self.verbose:
             print("----" * 20)
@@ -265,38 +297,42 @@ class CoppeliaSimEnv(gym.Env):
             self.rob.play_simulation()
         if isinstance(self.rob, SimulationRobobo) and not self.rob.is_running():
             raise RuntimeError("Simulation is not running")
-        observation = np.array(self.rob.read_irs())
-        observation = np.nan_to_num(observation, posinf=1e10)
-
+        # Set phone pan and tilt
+        # self.rob.set_phone_pan(50, 50)
+        self.rob.set_phone_tilt(80, 50)
+        # Read IR
+        self.ir_readings = np.array(self.rob.read_irs())
+        self.ir_readings = np.nan_to_num(self.ir_readings, posinf=1e10)
         # Update the wheel positions and duration
         wheel_position = self.rob.read_wheels()
         self.left_wheel_pos = wheel_position.wheel_pos_l
         self.right_wheel_pos = wheel_position.wheel_pos_r
         self.duration = 0  # Reset the duration to 0
-
-        # Update the observation with the new features
-        observation = np.concatenate(
-            [
-                observation,
-                np.array(
-                    [
-                        self.left_wheel_pos,
-                        self.right_wheel_pos,
-                        self.speed,
-                        self.duration,
-                    ]
-                ),
-            ]
-        )
-
-        info = {}
-        # Reset the past observations to zeros
-        self.past_observations = [np.zeros(12) for _ in range(3)]
         # Reset exploration grid
         self.grid = np.zeros(self.grid_size)
+        # Get image
+        image = self.rob.get_image_front()
+        image = self.process_image(image, save_image=True)
+        # Update the observation with the new features and the image
+        self.observation = {
+            "vector": np.concatenate(
+                [
+                    self.ir_readings,
+                    np.array(
+                        [
+                            self.left_wheel_pos,
+                            self.right_wheel_pos,
+                            self.speed,
+                            self.duration,
+                        ]
+                    ),
+                ]
+            ),
+            "image": image,
+        }
+        info = {}
 
-        # Include the past observations in the returned observation
-        return np.concatenate(self.past_observations + [observation]), info
+        return self.observation, info
 
     def close(self):
         if isinstance(self.rob, SimulationRobobo):
@@ -336,13 +372,13 @@ class HParamCallback(BaseCallback):
         self.tb_formatter.writer.add_hparams(hparam_dict, metric_dict)
 
     def _log_observations(self):
-        observation = np.array(self.training_env.envs[0].observation)
+        ir_readings = np.array(self.training_env.envs[0].ir_readings)
         left_motor_speed = np.array(self.training_env.envs[0].left_motor_speed)
         right_motor_speed = np.array(self.training_env.envs[0].right_motor_speed)
 
         for sensor_name, index in IR_SENSOR_INDICES.items():
             self.tb_formatter.writer.add_scalar(
-                f"observations/{sensor_name}", observation[index], self.num_timesteps
+                f"observations/{sensor_name}", ir_readings[index], self.num_timesteps
             )
         self.tb_formatter.writer.add_scalar(
             "observations/left_motor_speed", left_motor_speed, self.num_timesteps
@@ -398,12 +434,6 @@ class HParamCallback(BaseCallback):
         return True
 
 
-model_dir = "/root/results/models/"
-tensorboard_dir = "/root/results/tensorboard5/"
-os.makedirs(model_dir, exist_ok=True)
-os.makedirs(tensorboard_dir, exist_ok=True)
-
-
 def train_model(
     rob,
     n_episodes=50,
@@ -422,7 +452,7 @@ def train_model(
         make_env, n_envs=n_envs, monitor_dir=os.path.join(model_dir, "monitor")
     )
     DQN_PARAMS = dict(
-        policy="MlpPolicy",
+        policy="MultiInputPolicy",
         env=vec_env,
         verbose=1,
         train_freq=16,
@@ -435,7 +465,10 @@ def train_model(
         buffer_size=10000,
         batch_size=128,
         learning_rate=4e-3,
-        policy_kwargs=dict(net_arch=[256, 256]),
+        policy_kwargs=dict(
+            net_arch=[256, 256],
+            normalize_images=False,
+        ),
         tensorboard_log=tensorboard_dir,
         seed=2,
     )
