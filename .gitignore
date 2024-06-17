@@ -190,4 +190,5 @@ CoppeliaSim.tar.xz
 # Ignore CoppeliaSim files
 examples/full_project_setup/CoppeliaSim
 # examples/G2_Task_0/CoppeliaSim/
-examples/G2_Task_1/requirements.txt.bak
+examples/*/requirements.txt.bak
+examples/*/CoppeliaSim
