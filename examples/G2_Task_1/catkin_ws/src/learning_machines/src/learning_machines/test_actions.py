@@ -16,6 +16,8 @@ from robobo_interface import (
     HardwareRobobo,
 )
 
+# idea: use camera separate it int lrf and calc pxels to detect objects or obstacles?
+
 
 class Direction(Enum):
     FRONT = 0
@@ -89,6 +91,10 @@ class CoppeliaSimEnv(gym.Env):
         self.actions = []
         self.last_actions = []
         self.action_sequence_length = 5
+        # Exploration reward stuff
+        self.f_exp = 0
+        self.grid_size = (1000, 1000)
+        self.grid = np.zeros(self.grid_size)
 
     def calculate_speed(self, duration):
         # Get the current positions of the left and right wheels
@@ -119,6 +125,8 @@ class CoppeliaSimEnv(gym.Env):
         current_left_wheel_pos = wheel_position.wheel_pos_l
         current_right_wheel_pos = wheel_position.wheel_pos_r
 
+        # idea: reward check left ir vals and if going left penalize?
+
         # Calculate the speeds of the left and right wheels
         self.left_motor_speed = (
             current_left_wheel_pos - self.previous_left_wheel_pos
@@ -141,24 +149,35 @@ class CoppeliaSimEnv(gym.Env):
         proximity_sensors = np.array(self.rob.read_irs())
 
         # Set a threshold for the IR readings
-        ir_threshold = 200
+        ir_threshold = 100
 
         # Penalize the reward if any IR reading is over the threshold
         self.v_sens = np.sum(proximity_sensors > ir_threshold)
 
+        # Exploration factor
+        self.f_exp = (
+            np.sum(self.grid) / (self.grid_size[0] * self.grid_size[1])
+        ) * 100000
+
         # Define weights for each factor
-        w_trans = 0.5  # weight for translational speed
-        w_rot = 0.2  # weight for rotational speed
-        w_ir = 0.3  # weight for IR penalty
+        w_trans = 0.2  # weight for translational speed
+        w_rot = 0.1  # weight for rotational speed
+        w_ir = 0.5  # weight for IR penalty
+        w_exp = 0.2  # weight for exploration
 
         # Calculate the reward as a weighted sum of the factors
-        reward = w_trans * self.s_trans - w_rot * self.s_rot - w_ir * self.v_sens
+        reward = (
+            w_trans * self.s_trans
+            - w_rot * self.s_rot
+            - w_ir * self.v_sens
+            + w_exp * self.f_exp
+        )
 
-        # Ensure the reward is between -1 and 1
-        reward = np.clip(reward, -1, 1)
-
+        print("----" * 10)
         print(
-            f"Reward: {reward}\ns_trans: {self.s_trans}\ns_rot: {self.s_rot}\nv_sens: {self.v_sens}\n"
+            f"Reward: {reward}\nTranslational speed: {self.s_trans}\nRotational\
+            speed: {self.s_rot}\nIR penalty: {self.v_sens}\nExploration factor:\
+            {self.f_exp}"
         )
         return reward
 
@@ -190,6 +209,11 @@ class CoppeliaSimEnv(gym.Env):
         self.left_wheel_pos = wheel_position.wheel_pos_l
         self.right_wheel_pos = wheel_position.wheel_pos_r
         self.duration = duration
+
+        # Exploration reward stuff
+        x, y = self.rob.get_position().x, self.rob.get_position().y
+        cell_x, cell_y = int(x), int(y)
+        self.grid[cell_x][cell_y] = 1
 
         # Update the observation with the new features
         self.observation = np.concatenate(
@@ -268,6 +292,8 @@ class CoppeliaSimEnv(gym.Env):
         info = {}
         # Reset the past observations to zeros
         self.past_observations = [np.zeros(12) for _ in range(3)]
+        # Reset exploration grid
+        self.grid = np.zeros(self.grid_size)
 
         # Include the past observations in the returned observation
         return np.concatenate(self.past_observations + [observation]), info
@@ -329,6 +355,7 @@ class HParamCallback(BaseCallback):
         s_trans = np.array(self.training_env.envs[0].s_trans)
         s_rot = np.array(self.training_env.envs[0].s_rot)
         v_sens = np.array(self.training_env.envs[0].v_sens)
+        f_exp = np.array(self.training_env.envs[0].f_exp)
         reward = np.array(self.training_env.envs[0].reward)
 
         self.tb_formatter.writer.add_scalar(
@@ -338,6 +365,7 @@ class HParamCallback(BaseCallback):
         self.tb_formatter.writer.add_scalar(
             "rewards/v_sens", v_sens, self.num_timesteps
         )
+        self.tb_formatter.writer.add_scalar("rewards/f_exp", f_exp, self.num_timesteps)
         self.tb_formatter.writer.add_scalar("rewards/env", reward, self.num_timesteps)
 
     def _log_action(self):
@@ -371,7 +399,7 @@ class HParamCallback(BaseCallback):
 
 
 model_dir = "/root/results/models/"
-tensorboard_dir = "/root/results/tensorboard4/"
+tensorboard_dir = "/root/results/tensorboard5/"
 os.makedirs(model_dir, exist_ok=True)
 os.makedirs(tensorboard_dir, exist_ok=True)
 
@@ -438,6 +466,8 @@ def train_model(
         if verbose:
             print(f"Episode {episode} training complete")
             print(f"Model saved to {os.path.join(model_dir, model_name)}")
+
+    rob.stop_simulation()
 
     return model
 
@@ -524,10 +554,11 @@ def run_all_actions(rob: IRobobo):
             time_steps_per_episode=200,
             verbose=1,
             load_model=False,
+            n_envs=4,
             # model_name="DQN-20240614-020415_easy_50ep1kts",
         )
         # run_model(
         #     rob, model_name="DQN-20240614-020415_easy_50ep1kts", n_steps=200, verbose=1
         # )
     elif isinstance(rob, HardwareRobobo):
-        test_hardware(rob, "DQN-20240614-020415_easy_50ep1kts_original", n_steps=200)
+        test_hardware(rob, "DQN-20240614-130305", n_steps=200)
