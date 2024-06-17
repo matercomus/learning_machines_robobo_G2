@@ -115,7 +115,7 @@ class CoppeliaSimEnv(gym.Env):
         self.previous_right_wheel_pos = current_right_wheel_pos
 
         # Calculate the translational speed
-        speed = left_motor_speed + right_motor_speed
+        speed = abs(left_motor_speed + right_motor_speed)
 
         return speed
 
@@ -174,11 +174,11 @@ class CoppeliaSimEnv(gym.Env):
         )
 
         print("----" * 10)
-        print(
-            f"Reward: {reward}\nTranslational speed: {self.s_trans}\nRotational\
-            speed: {self.s_rot}\nIR penalty: {self.v_sens}\nExploration factor:\
-            {self.f_exp}"
-        )
+        print(f"Translational speed: {self.s_trans}")
+        print(f"Rotational speed: {self.s_rot}")
+        print(f"IR penalty: {self.v_sens}")
+        print(f"Exploration factor: {self.f_exp}")
+        print(f"Reward: {reward}")
         return reward
 
     def step(self, action):
@@ -235,7 +235,7 @@ class CoppeliaSimEnv(gym.Env):
         if len(self.actions) > self.action_sequence_length:
             self.last_actions = self.actions[-self.action_sequence_length :]
 
-        terminated = False
+        terminated = False  # Idea, terminate if robot gets stuc
         truncated = False
         info = {}
 
@@ -501,16 +501,6 @@ def run_model(rob, model=None, model_name=None, vec_env=None, n_steps=100, verbo
         rob.stop_simulation()
 
 
-def train_and_run_model(rob, verbose=0):
-    model = train_model(rob, verbose=verbose)
-    vec_env = make_vec_env(
-        lambda: CoppeliaSimEnv(rob=rob),
-        n_envs=1,
-        monitor_dir=os.path.join(model_dir, "monitor"),
-    )
-    run_model(rob, model, vec_env, verbose=verbose)
-
-
 def test_hardware(rob: "HardwareRobobo", model_name: str, n_steps: int = None):
     # Load the model
     model_path = os.path.join(model_dir, model_name)
@@ -547,7 +537,6 @@ def test_hardware(rob: "HardwareRobobo", model_name: str, n_steps: int = None):
 
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
-        # train_and_run_model(rob, verbose=1)
         train_model(
             rob,
             n_episodes=25,
