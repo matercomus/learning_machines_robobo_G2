@@ -203,13 +203,20 @@ class CoppeliaSimEnv(gym.Env):
     def process_image(self, image, save_image=False):
         # Resize the image to 64x64 pixels
         image = cv2.resize(image, (64, 64))
-        # Flip the image
-        flipped_image = cv2.flip(image, 0)
+        # Flip the image back
+        image = cv2.flip(image, 0)
+        # Isolate green channel
+        hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        lower_green = np.array([40, 40, 40])
+        upper_green = np.array([80, 255, 255])
+        # Mask the image
+        mask = cv2.inRange(hsv_image, lower_green, upper_green)
+        masked_image = cv2.bitwise_and(image, image, mask=mask)
 
         if save_image:
             cv2.imwrite(
                 os.path.join(image_run_dir, f"image_{self.image_counter}.png"),
-                flipped_image,
+                masked_image,
             )
             self.image_counter += 1  # Increment the counter
 
