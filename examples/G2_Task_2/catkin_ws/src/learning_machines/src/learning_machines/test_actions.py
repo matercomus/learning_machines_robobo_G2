@@ -201,18 +201,20 @@ class CoppeliaSimEnv(gym.Env):
     #     # Calculate the ratio of non-black pixels to total pixels
     #     green_percent = non_black_pixels / total_pixels
     #     return green_percent
-    
+
     def get_green_percent(self, image):
         middle_box = image[:, 20:45]
         non_black_pixels = np.count_nonzero(middle_box)
-        total_pisels = 64* 25
+        total_pisels = 64 * 25
         return non_black_pixels / total_pisels
-        
 
     def early_termination(self):
         # Check if the robot is stuck
         if self.past_rewards[-1:-21] == [0.0] * 20:
+            print("Early termination due to low rewards")
             return True
+        else:
+            return False
 
     def step(self, action):
         speed = 50
@@ -261,7 +263,7 @@ class CoppeliaSimEnv(gym.Env):
                             self.left_wheel_pos,
                             self.right_wheel_pos,
                             self.green_percent,
-                            self.last_green_percent
+                            self.last_green_percent,
                         ]
                     ),
                 ]
@@ -329,7 +331,7 @@ class CoppeliaSimEnv(gym.Env):
                             self.left_wheel_pos,
                             self.right_wheel_pos,
                             self.green_percent,
-                            self.last_green_percent
+                            self.last_green_percent,
                         ]
                     ),
                 ]
