@@ -49,9 +49,9 @@ IR_SENSOR_INDICES = {
     "FrontL": 2,
     "FrontR": 3,
     "FrontC": 4,
-    "BackL": 0,
-    "BackR": 1,
-    "BackC": 6,
+    # "BackL": 0,
+    # "BackR": 1,
+    # "BackC": 6,
     "FrontLL": 7,
     "FrontRR": 5,
 }
@@ -99,6 +99,10 @@ class CoppeliaSimEnv(gym.Env):
         self.speed = 0
         self.duration = 0
         self.image_counter = 0
+        # Mask
+        mask = np.ones(8, dtype=bool)
+        exclude_indices = np.array([0, 1, 6])
+        self.mask = mask[exclude_indices] = False
 
         # Reward stuff
         self.s_trans = 0
@@ -196,6 +200,7 @@ class CoppeliaSimEnv(gym.Env):
         if isinstance(self.rob, SimulationRobobo) and not self.rob.is_running():
             raise RuntimeError("Simulation is not running")
         self.ir_readings = np.array(self.rob.read_irs())
+        self.ir_readings = self.ir_readings[self.mask]
         self.ir_readings = np.nan_to_num(self.ir_readings, posinf=1e10)
         # Update the wheel positions and duration
         wheel_position = self.rob.read_wheels()
@@ -261,6 +266,7 @@ class CoppeliaSimEnv(gym.Env):
         self.rob.set_phone_tilt(80, 50)
         # Read IR
         self.ir_readings = np.array(self.rob.read_irs())
+        self.ir_readings = self.ir_readings[self.mask]
         self.ir_readings = np.nan_to_num(self.ir_readings, posinf=1e10)
         # Update the wheel positions and duration
         wheel_position = self.rob.read_wheels()
