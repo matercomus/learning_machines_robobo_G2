@@ -109,6 +109,7 @@ class CoppeliaSimEnv(gym.Env):
         self.actions = []
         self.last_actions = []
         self.action_sequence_length = 5
+        self.green_percent = 0
 
         # Exploration reward stuff
         self.f_exp = 0
@@ -201,6 +202,8 @@ class CoppeliaSimEnv(gym.Env):
         return reward
 
     def process_image(self, image, save_image=False):
+        image_name = f"image_{self.image_counter}.png"
+        print(f"Processing image {image_name}")
         # Resize the image to 64x64 pixels
         image = cv2.resize(image, (64, 64))
         # Flip the image back
@@ -215,12 +218,21 @@ class CoppeliaSimEnv(gym.Env):
 
         if save_image:
             cv2.imwrite(
-                os.path.join(image_run_dir, f"image_{self.image_counter}.png"),
+                os.path.join(image_run_dir, image_name),
                 masked_image,
             )
             self.image_counter += 1  # Increment the counter
 
-        return image
+        return masked_image
+
+    def get_green_percent(self, image):
+        # Count the number of non-black pixels
+        non_black_pixels = np.count_nonzero(image)
+        # Count the total number of pixels
+        total_pixels = 64*64
+        # Calculate the ratio of non-black pixels to total pixels
+        green_percent = non_black_pixels / total_pixels
+        return green_percent
 
     def step(self, action):
         speed = 50
@@ -258,6 +270,8 @@ class CoppeliaSimEnv(gym.Env):
 
         image = self.rob.get_image_front()
         image = self.process_image(image, save_image=True)
+        self.green_percent = self.get_green_percent(image)
+        print(f"Green percent: {self.green_percent}")
 
         # Update the observation with the new features and the image
         self.observation = {
