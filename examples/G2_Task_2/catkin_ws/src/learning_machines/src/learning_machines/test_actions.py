@@ -109,6 +109,7 @@ class CoppeliaSimEnv(gym.Env):
         self.s_rot = 0
         self.v_sens = 0
         self.reward = 0
+        self.past_rewards = []
         self.action = None
         self.actions = []
         self.last_actions = []
@@ -201,6 +202,11 @@ class CoppeliaSimEnv(gym.Env):
         green_percent = non_black_pixels / total_pixels
         return green_percent
 
+    def early_termination(self):
+        # Check if the robot is stuck
+        if self.past_rewards[-1:-21] == [0.0] * 20:
+            return True
+
     def step(self, action):
         speed = 50
         duration = 300
@@ -256,8 +262,9 @@ class CoppeliaSimEnv(gym.Env):
         }
 
         self.reward = self.calculate_reward()
+        self.past_rewards.append(self.reward)
 
-        terminated = False  # Idea, terminate if robot gets stuc
+        terminated = self.early_termination()
         truncated = False
         info = {}
 
