@@ -149,13 +149,13 @@ class CoppeliaSimEnv(gym.Env):
         # Same position penalty
         x, y = self.rob.get_position().x, self.rob.get_position().y
         if (x, y) in self.position_history:
-            pos_p = 0.5
+            pos_p = 1
         else:
             pos_p = 0
         self.position_history.append((x, y))
         # IR readings penalty
         highest_ir = max(self.ir_readings)
-        if self.green_percent > self.last_green_percent:
+        if self.green_percent > 0:
             ir_p = 0
         elif highest_ir >= sensor_max:
             ir_p = 1
@@ -164,7 +164,7 @@ class CoppeliaSimEnv(gym.Env):
                 sensor_max - min(self.ir_readings)
             )
         # Reward
-        reward = self.green_percent * (1 - pos_p) * (1 - ir_p)
+        reward = self.green_percent * (1 - pos_p) - ir_p
         print(f"Reward: {reward}")
         return reward
 
@@ -202,12 +202,26 @@ class CoppeliaSimEnv(gym.Env):
     #     return green_percent
     
     def get_green_percent(self, image):
-        middle_box = image[:, 20:45]
-        non_black_pixels = np.count_nonzero(middle_box)
-        total_pisels = 64* 25
-        return non_black_pixels / total_pisels
+         # Check if there are any 1s in the array
+        if not np.any(image):
+            return 0
+         # Define the center of the arra
+        center = np.array([32, 32])
+        # Get the coordinates of all 1s in the array
+        ones_positions = np.argwhere(image != 0)
+        # Calculate the distance of each 1 from the center
+        distances = np.linalg.norm(ones_positions - center, axis=1)
+        # Calculate the score based on the distances
+        # Closer to center gives higher score, farther gives lower score
+        min_distance = np.min(distances)
+        if min_distance == 0:
+            return 1
+        else:
+            # Normalize distance to range [0, 1] and invert it
+            normalized_distance = min_distance / np.linalg.norm(center)
+            score = 1 - normalized_distance
+            return score
         
-
     def step(self, action):
         speed = 50
         duration = 300
@@ -242,7 +256,7 @@ class CoppeliaSimEnv(gym.Env):
         image = self.rob.get_image_front()
         image = self.process_image(image, save_image=False)
         self.last_green_percent = self.green_percent
-        self.green_percent = self.get_green_percent(image)
+        self.green_percent = self.get_green_percent(image[:, :, 1])
         print(f"Green percent: {self.green_percent}")
 
         # Update the observation with the new features and the image
@@ -309,7 +323,7 @@ class CoppeliaSimEnv(gym.Env):
         image = self.rob.get_image_front()
         image = self.process_image(image, save_image=False)
         self.last_green_percent = self.green_percent
-        self.green_percent = self.get_green_percent(image)
+        self.green_percent = self.get_green_percent(image[:, :, 1])
         print(f"Green percent: {self.green_percent}")
 
         # Update the observation with the new features and the image
