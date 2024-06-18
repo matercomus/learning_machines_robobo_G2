@@ -109,6 +109,8 @@ class CoppeliaSimEnv(gym.Env):
         self.actions = []
         self.last_actions = []
         self.action_sequence_length = 5
+        self.position_history = []
+        self.last_green_percent = 0
 
         # Exploration reward stuff
         self.f_exp = 0
@@ -138,67 +140,24 @@ class CoppeliaSimEnv(gym.Env):
 
         return speed
 
-    def calculate_reward(self, duration=200):
-        # Get the current positions of the left and right wheels
-        wheel_position = self.rob.read_wheels()
-        current_left_wheel_pos = wheel_position.wheel_pos_l
-        current_right_wheel_pos = wheel_position.wheel_pos_r
-
-        # idea: reward check left ir vals and if going left penalize?
-
-        # Calculate the speeds of the left and right wheels
-        self.left_motor_speed = (
-            current_left_wheel_pos - self.previous_left_wheel_pos
-        ) / duration
-        self.right_motor_speed = (
-            current_right_wheel_pos - self.previous_right_wheel_pos
-        ) / duration
-
-        # Update the previous wheel positions
-        self.previous_left_wheel_pos = current_left_wheel_pos
-        self.previous_right_wheel_pos = current_right_wheel_pos
-
-        # Calculate the translational speed
-        self.s_trans = self.left_motor_speed + self.right_motor_speed
-
-        # Calculate the rotational speed
-        self.s_rot = abs(self.left_motor_speed - self.right_motor_speed)
-
-        # Get the values of all proximity sensors
-        proximity_sensors = np.array(self.rob.read_irs())
-
-        # Set a threshold for the IR readings
-        ir_threshold = 100
-
-        # Penalize the reward if any IR reading is over the threshold
-        self.v_sens = np.sum(proximity_sensors > ir_threshold)
-
-        # Exploration factor
-        self.f_exp = (
-            np.sum(self.grid) / (self.grid_size[0] * self.grid_size[1])
-        ) * 100000
-
-        # Define weights for each factor
-        w_trans = 0.2  # weight for translational speed
-        w_rot = 0.1  # weight for rotational speed
-        w_ir = 0.5  # weight for IR penalty
-        w_exp = 0.2  # weight for exploration
-
-        # Calculate the reward as a weighted sum of the factors
-        reward = (
-            w_trans * self.s_trans
-            - w_rot * self.s_rot
-            - w_ir * self.v_sens
-            + w_exp * self.f_exp
-        )
-
-        print("----" * 10)
-        print(f"Translational speed: {self.s_trans}")
-        print(f"Rotational speed: {self.s_rot}")
-        print(f"IR penalty: {self.v_sens}")
-        print(f"Exploration factor: {self.f_exp}")
-        print(f"Reward: {reward}")
-        return reward
+    def calculate_reward(self, green_percent, sensor_max=200):
+        # Same position penalty
+        x, y = self.rob.get_position().x, self.rob.get_position().y
+        if (x, y) in self.position_history:
+            pos_p = 0.5
+        else:
+            pos_p = 0
+        self.position_history.append((x, y))
+        # IR readings penalty
+        highest_ir = max(self.ir_readings)
+        if green_percent > self.last_green_percent:
+            ir_p = 0
+        elif highest_ir >= sensor_max:
+            ir_p = 1
+        else:
+            ir_p = (highest_ir - min(self.ir_readings)) / (sensor_max - min(self.ir_readings))
+        # Reward
+        return green_percent * (1 - pos_p) * (1 - ir_p)
 
     def process_image(self, image, save_image=False):
         # Resize the image to 64x64 pixels
