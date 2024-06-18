@@ -193,20 +193,11 @@ class CoppeliaSimEnv(gym.Env):
 
         return masked_image
 
-    # def get_green_percent(self, image):
-    #     # Count the number of non-black pixels
-    #     non_black_pixels = np.count_nonzero(image)
-    #     # Count the total number of pixels
-    #     total_pixels = 64 * 64
-    #     # Calculate the ratio of non-black pixels to total pixels
-    #     green_percent = non_black_pixels / total_pixels
-    #     return green_percent
-
     def get_green_percent(self, image):
-         # Check if there are any 1s in the array
+        # Check if there are any 1s in the array
         if not np.any(image):
             return 0
-         # Define the center of the arra
+        # Define the center of the arra
         center = np.array([32, 32])
         # Get the coordinates of all 1s in the array
         ones_positions = np.argwhere(image != 0)
@@ -222,14 +213,14 @@ class CoppeliaSimEnv(gym.Env):
             normalized_distance = min_distance / np.linalg.norm(center)
             score = 1 - normalized_distance
             return score
-    
+
     def early_termination(self):
         if all(reward == -1 for reward in self.past_rewards[-5:]):
             print("Early termination due to low rewards")
             return True
         else:
             return False
-        
+
     def step(self, action):
         speed = 50
         duration = 300
@@ -237,8 +228,6 @@ class CoppeliaSimEnv(gym.Env):
         action = Direction(action)
         if action == Direction.FRONT:  # forward
             self.rob.move_blocking(speed, speed, duration)
-        # elif action == Direction.BACK:  # backward
-        #     self.rob.move_blocking(-speed, -speed, duration)
         elif action == Direction.LEFT:  # left
             self.rob.move_blocking(-speed, speed, duration)
         elif action == Direction.RIGHT:  # right
