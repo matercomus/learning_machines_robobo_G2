@@ -77,8 +77,8 @@ class CoppeliaSimEnv(gym.Env):
         self.image_space = spaces.Box(
             low=0, high=255, shape=self.image_shape, dtype=np.uint8
         )
-        low = np.full(12, -np.inf)  # Allow negative values for all features
-        high = np.full(12, np.inf)
+        low = np.full(9, -np.inf)  # Allow negative values for all features
+        high = np.full(9, np.inf)
         self.sensor_space = spaces.Box(low=low, high=high, dtype=np.float64)
 
         # Combine the sensor and image spaces into the observation space
@@ -100,9 +100,9 @@ class CoppeliaSimEnv(gym.Env):
         self.duration = 0
         self.image_counter = 0
         # Mask
-        mask = np.ones(8, dtype=bool)
+        self.mask = np.ones(8, dtype=bool)
         exclude_indices = np.array([0, 1, 6])
-        self.mask = mask[exclude_indices] = False
+        self.mask[exclude_indices] = False
 
         # Reward stuff
         self.s_trans = 0
@@ -192,14 +192,21 @@ class CoppeliaSimEnv(gym.Env):
 
         return masked_image
 
+    # def get_green_percent(self, image):
+    #     # Count the number of non-black pixels
+    #     non_black_pixels = np.count_nonzero(image)
+    #     # Count the total number of pixels
+    #     total_pixels = 64 * 64
+    #     # Calculate the ratio of non-black pixels to total pixels
+    #     green_percent = non_black_pixels / total_pixels
+    #     return green_percent
+    
     def get_green_percent(self, image):
-        # Count the number of non-black pixels
-        non_black_pixels = np.count_nonzero(image)
-        # Count the total number of pixels
-        total_pixels = 64 * 64
-        # Calculate the ratio of non-black pixels to total pixels
-        green_percent = non_black_pixels / total_pixels
-        return green_percent
+        middle_box = image[:, 20:45]
+        non_black_pixels = np.count_nonzero(middle_box)
+        total_pisels = 64* 25
+        return non_black_pixels / total_pisels
+        
 
     def step(self, action):
         speed = 50
@@ -225,6 +232,7 @@ class CoppeliaSimEnv(gym.Env):
         self.ir_readings = np.array(self.rob.read_irs())
         self.ir_readings = self.ir_readings[self.mask]
         self.ir_readings = np.nan_to_num(self.ir_readings, posinf=1e10)
+        print(self.ir_readings)
         # Update the wheel positions and duration
         wheel_position = self.rob.read_wheels()
         self.left_wheel_pos = wheel_position.wheel_pos_l
@@ -232,7 +240,7 @@ class CoppeliaSimEnv(gym.Env):
         self.duration = duration
 
         image = self.rob.get_image_front()
-        image = self.process_image(image, save_image=True)
+        image = self.process_image(image, save_image=False)
         self.last_green_percent = self.green_percent
         self.green_percent = self.get_green_percent(image)
         print(f"Green percent: {self.green_percent}")
@@ -246,8 +254,8 @@ class CoppeliaSimEnv(gym.Env):
                         [
                             self.left_wheel_pos,
                             self.right_wheel_pos,
-                            self.speed,
-                            self.duration,
+                            self.green_percent,
+                            self.last_green_percent
                         ]
                     ),
                 ]
@@ -289,6 +297,7 @@ class CoppeliaSimEnv(gym.Env):
         self.ir_readings = np.array(self.rob.read_irs())
         self.ir_readings = self.ir_readings[self.mask]
         self.ir_readings = np.nan_to_num(self.ir_readings, posinf=1e10)
+        print(self.ir_readings)
         # Update the wheel positions and duration
         wheel_position = self.rob.read_wheels()
         self.left_wheel_pos = wheel_position.wheel_pos_l
@@ -298,7 +307,7 @@ class CoppeliaSimEnv(gym.Env):
         self.grid = np.zeros(self.grid_size)
         # Get image
         image = self.rob.get_image_front()
-        image = self.process_image(image, save_image=True)
+        image = self.process_image(image, save_image=False)
         self.last_green_percent = self.green_percent
         self.green_percent = self.get_green_percent(image)
         print(f"Green percent: {self.green_percent}")
@@ -312,8 +321,8 @@ class CoppeliaSimEnv(gym.Env):
                         [
                             self.left_wheel_pos,
                             self.right_wheel_pos,
-                            self.speed,
-                            self.duration,
+                            self.green_percent,
+                            self.last_green_percent
                         ]
                     ),
                 ]
@@ -416,7 +425,7 @@ class HParamCallback(BaseCallback):
             )
 
     def _on_step(self) -> bool:
-        self._log_observations()
+        # self._log_observations()
         self._log_rewards()
         self._log_action()
         self._log_episode_length()
