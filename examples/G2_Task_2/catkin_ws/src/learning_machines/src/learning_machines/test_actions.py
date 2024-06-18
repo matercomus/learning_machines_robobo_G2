@@ -31,15 +31,15 @@ os.makedirs(image_run_dir, exist_ok=True)
 
 class Direction(Enum):
     FRONT = 0
-    BACK = 1
-    LEFT = 2
-    RIGHT = 3
+    # BACK = 1
+    LEFT = 1
+    RIGHT = 2
 
 
 # Mapping of directions to their corresponding IR sensor names
 DIRECTION_IR_MAP = {
     Direction.FRONT: ["FrontL", "FrontR", "FrontC"],
-    Direction.BACK: ["BackL", "BackR", "BackC"],
+    # Direction.BACK: ["BackL", "BackR", "BackC"],
     Direction.LEFT: ["FrontLL", "FrontL"],
     Direction.RIGHT: ["FrontR", "FrontRR"],
 }
@@ -71,7 +71,7 @@ class CoppeliaSimEnv(gym.Env):
         self.verbose = verbose
 
         # 4 actions: forward, backward, left, right
-        self.action_space = spaces.Discrete(4)
+        self.action_space = spaces.Discrete(3)
         self.image_shape = (64, 64, 3)
         # Define the observation space for the image
         self.image_space = spaces.Box(
@@ -140,7 +140,7 @@ class CoppeliaSimEnv(gym.Env):
 
         return speed
 
-    def calculate_reward(self, green_percent, sensor_max=200):
+    def calculate_reward(self, green_percent=100, sensor_max=200):
         # Same position penalty
         x, y = self.rob.get_position().x, self.rob.get_position().y
         if (x, y) in self.position_history:
@@ -181,8 +181,8 @@ class CoppeliaSimEnv(gym.Env):
         action = Direction(action)
         if action == Direction.FRONT:  # forward
             self.rob.move_blocking(speed, speed, duration)
-        elif action == Direction.BACK:  # backward
-            self.rob.move_blocking(-speed, -speed, duration)
+        # elif action == Direction.BACK:  # backward
+        #     self.rob.move_blocking(-speed, -speed, duration)
         elif action == Direction.LEFT:  # left
             self.rob.move_blocking(-speed, speed, duration)
         elif action == Direction.RIGHT:  # right
@@ -229,7 +229,7 @@ class CoppeliaSimEnv(gym.Env):
             "image": image,
         }
 
-        self.reward = self.calculate_reward(duration=duration)
+        self.reward = self.calculate_reward()
 
         terminated = False  # Idea, terminate if robot gets stuc
         truncated = False
