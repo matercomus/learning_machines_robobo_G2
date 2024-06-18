@@ -109,6 +109,7 @@ class CoppeliaSimEnv(gym.Env):
         self.s_rot = 0
         self.v_sens = 0
         self.reward = 0
+        self.past_rewards = []
         self.action = None
         self.actions = []
         self.last_actions = []
@@ -200,7 +201,7 @@ class CoppeliaSimEnv(gym.Env):
     #     # Calculate the ratio of non-black pixels to total pixels
     #     green_percent = non_black_pixels / total_pixels
     #     return green_percent
-    
+
     def get_green_percent(self, image):
          # Check if there are any 1s in the array
         if not np.any(image):
@@ -221,6 +222,13 @@ class CoppeliaSimEnv(gym.Env):
             normalized_distance = min_distance / np.linalg.norm(center)
             score = 1 - normalized_distance
             return score
+    
+    def early_termination(self):
+        if all(reward == -1 for reward in self.past_rewards[-5:]):
+            print("Early termination due to low rewards")
+            return True
+        else:
+            return False
         
     def step(self, action):
         speed = 50
@@ -246,7 +254,6 @@ class CoppeliaSimEnv(gym.Env):
         self.ir_readings = np.array(self.rob.read_irs())
         self.ir_readings = self.ir_readings[self.mask]
         self.ir_readings = np.nan_to_num(self.ir_readings, posinf=1e10)
-        print(self.ir_readings)
         # Update the wheel positions and duration
         wheel_position = self.rob.read_wheels()
         self.left_wheel_pos = wheel_position.wheel_pos_l
@@ -269,7 +276,7 @@ class CoppeliaSimEnv(gym.Env):
                             self.left_wheel_pos,
                             self.right_wheel_pos,
                             self.green_percent,
-                            self.last_green_percent
+                            self.last_green_percent,
                         ]
                     ),
                 ]
@@ -278,8 +285,9 @@ class CoppeliaSimEnv(gym.Env):
         }
 
         self.reward = self.calculate_reward()
+        self.past_rewards.append(self.reward)
 
-        terminated = False  # Idea, terminate if robot gets stuc
+        terminated = self.early_termination()
         truncated = False
         info = {}
 
@@ -311,7 +319,6 @@ class CoppeliaSimEnv(gym.Env):
         self.ir_readings = np.array(self.rob.read_irs())
         self.ir_readings = self.ir_readings[self.mask]
         self.ir_readings = np.nan_to_num(self.ir_readings, posinf=1e10)
-        print(self.ir_readings)
         # Update the wheel positions and duration
         wheel_position = self.rob.read_wheels()
         self.left_wheel_pos = wheel_position.wheel_pos_l
@@ -336,7 +343,7 @@ class CoppeliaSimEnv(gym.Env):
                             self.left_wheel_pos,
                             self.right_wheel_pos,
                             self.green_percent,
-                            self.last_green_percent
+                            self.last_green_percent,
                         ]
                     ),
                 ]
