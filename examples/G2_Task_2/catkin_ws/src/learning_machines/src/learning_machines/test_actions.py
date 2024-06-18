@@ -209,8 +209,7 @@ class CoppeliaSimEnv(gym.Env):
         return non_black_pixels / total_pisels
 
     def early_termination(self):
-        # Check if the robot is stuck
-        if self.past_rewards[-1:-21] == [0.0] * 20:
+        if all(reward == 0.0 for reward in self.past_rewards[-20:]):
             print("Early termination due to low rewards")
             return True
         else:
@@ -240,7 +239,6 @@ class CoppeliaSimEnv(gym.Env):
         self.ir_readings = np.array(self.rob.read_irs())
         self.ir_readings = self.ir_readings[self.mask]
         self.ir_readings = np.nan_to_num(self.ir_readings, posinf=1e10)
-        print(self.ir_readings)
         # Update the wheel positions and duration
         wheel_position = self.rob.read_wheels()
         self.left_wheel_pos = wheel_position.wheel_pos_l
@@ -306,7 +304,6 @@ class CoppeliaSimEnv(gym.Env):
         self.ir_readings = np.array(self.rob.read_irs())
         self.ir_readings = self.ir_readings[self.mask]
         self.ir_readings = np.nan_to_num(self.ir_readings, posinf=1e10)
-        print(self.ir_readings)
         # Update the wheel positions and duration
         wheel_position = self.rob.read_wheels()
         self.left_wheel_pos = wheel_position.wheel_pos_l
