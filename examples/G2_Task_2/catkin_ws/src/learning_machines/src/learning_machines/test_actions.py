@@ -321,6 +321,7 @@ class CoppeliaSimEnv(gym.Env):
             raise RuntimeError("Simulation is not running")
         # Set phone pan and tilt
         # self.rob.set_phone_pan(50, 50)
+        self.collected_food = 0
         self.rob.set_phone_tilt(90, 50)
         # Read IR
         self.ir_readings = np.array(self.rob.read_irs())
@@ -467,7 +468,7 @@ def train_model(
     time_steps_per_episode=100,
     load_model=False,
     model_name=None,
-    n_envs=4,
+    n_envs=1,
     verbose=0,
 ):
     def make_env():
