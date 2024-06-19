@@ -198,16 +198,7 @@ class CoppeliaSimEnv(gym.Env):
 
         return green_channel
 
-    # def get_green_percent(self, image):
-    #     # Count the number of non-black pixels
-    #     non_black_pixels = np.count_nonzero(image)
-    #     # Count the total number of pixels
-    #     total_pixels = 64 * 64
-    #     # Calculate the ratio of non-black pixels to total pixels
-    #     green_percent = non_black_pixels / total_pixels
-    #     return green_percent
-
-    def get_green_percent(self, image):
+    def get_green_dist_from_center(self, image):
         # Check if there are any 1s in the array
         if not np.any(image):
             return 0
@@ -266,10 +257,10 @@ class CoppeliaSimEnv(gym.Env):
         self.duration = duration
 
         image = self.rob.get_image_front()
-        image = self.process_image(image, save_image=True)
+        image = self.process_image(image, save_image=False)
         self.last_green_percent = self.green_percent
         # self.green_percent = self.get_green_percent(image[:, :, 1])
-        self.green_percent = self.get_green_percent(image)
+        self.green_percent = self.get_green_dist_from_center(image)
         print(f"Green percent: {self.green_percent}")
 
         # Update the observation with the new features and the image
@@ -321,7 +312,7 @@ class CoppeliaSimEnv(gym.Env):
             raise RuntimeError("Simulation is not running")
         # Set phone pan and tilt
         # self.rob.set_phone_pan(50, 50)
-        self.rob.set_phone_tilt(90, 50)
+        self.rob.set_phone_tilt(100, 50)
         # Read IR
         self.ir_readings = np.array(self.rob.read_irs())
         self.ir_readings = self.ir_readings[self.mask]
@@ -337,7 +328,7 @@ class CoppeliaSimEnv(gym.Env):
         image = self.rob.get_image_front()
         image = self.process_image(image, save_image=False)
         self.last_green_percent = self.green_percent
-        self.green_percent = self.get_green_percent(image)
+        self.green_percent = self.get_green_dist_from_center(image)
         # print(f"Green percent: {self.green_percent}")
 
         # Update the observation with the new features and the image
@@ -488,11 +479,11 @@ def train_model(
         exploration_fraction=0.1,
         exploration_initial_eps=1.0,
         exploration_final_eps=0.05,
-        target_update_interval=10,
-        learning_starts=50,
+        target_update_interval=5,
+        learning_starts=10,
         buffer_size=1000,
         batch_size=256,
-        learning_rate=0.0001,
+        learning_rate=0.001,
         policy_kwargs=dict(
             net_arch=[256, 256],
             normalize_images=False,
