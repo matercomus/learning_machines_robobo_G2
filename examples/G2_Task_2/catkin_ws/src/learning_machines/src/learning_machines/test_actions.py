@@ -150,6 +150,7 @@ class CoppeliaSimEnv(gym.Env):
     def calculate_reward(self, sensor_max=200):
         # Big reward for collecting food
         if self.rob.nr_food_collected() > self.collected_food:
+            print('\n FOOD COLLECTED \n')
             self.collected_food = self.rob.nr_food_collected()
             return 10
         # Same position penalty
@@ -167,8 +168,8 @@ class CoppeliaSimEnv(gym.Env):
         if self.green_percent > 0:
             ir_p = 0
             #extra reward for forward action
-            if self.action == Direction.FRONT:
-                bonus = 0.2
+            # if self.action == Direction.FRONT:
+            #     bonus = 0.2
         elif highest_ir >= sensor_max:
             ir_p = 1
         else:
