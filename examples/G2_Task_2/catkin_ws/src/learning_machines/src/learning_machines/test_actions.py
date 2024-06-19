@@ -117,6 +117,7 @@ class CoppeliaSimEnv(gym.Env):
         self.position_history = []
         self.last_green_percent = 0
         self.green_percent = 0
+        self.collected_food = 0
 
         # Exploration reward stuff
         self.f_exp = 0
@@ -147,17 +148,27 @@ class CoppeliaSimEnv(gym.Env):
         return speed
 
     def calculate_reward(self, sensor_max=200):
+        # Big reward for collecting food
+        if self.collected_food > self.rob.nr_food_collected():
+            self.collected_food = self.rob.nr_food_collected()
+            return 10
         # Same position penalty
         x, y = self.rob.get_position().x, self.rob.get_position().y
+        x, y = round(x, 1), round(y, 1)
+        print('position: ', x, y)
         if (x, y) in self.position_history:
-            pos_p = 1
+            pos_p = 0.75
         else:
             pos_p = 0
         self.position_history.append((x, y))
         # IR readings penalty
+        bonus = 0
         highest_ir = max(self.ir_readings)
         if self.green_percent > 0:
             ir_p = 0
+            #extra reward for forward action
+            if self.action == Direction.FRONT:
+                bonus = 0.2
         elif highest_ir >= sensor_max:
             ir_p = 1
         else:
@@ -165,13 +176,9 @@ class CoppeliaSimEnv(gym.Env):
                 sensor_max - min(self.ir_readings)
             )
         # Reward
-        reward = self.green_percent * (1 - pos_p) - ir_p
-        print(f"Reward: {reward}")
-        return reward
+        return (self.green_percent - ir_p + bonus) * (1 - pos_p)
 
     def process_image(self, image, save_image=False):
-        image_name = f"image_{self.image_counter}.png"
-        print(f"Processing image {image_name}")
         # Resize the image to 64x64 pixels
         image = cv2.resize(image, (64, 64))
         # Flip the image back
@@ -185,6 +192,8 @@ class CoppeliaSimEnv(gym.Env):
         masked_image = cv2.bitwise_and(image, image, mask=mask)
 
         if save_image:
+            image_name = f"image_{self.image_counter}.png"
+            print(f"Processing image {image_name}")
             cv2.imwrite(
                 os.path.join(image_run_dir, image_name),
                 masked_image,
@@ -218,13 +227,13 @@ class CoppeliaSimEnv(gym.Env):
         if min_distance == 0:
             return 1
         else:
-            # Normalize distance to range [0, 1] and invert it
+            # Normalize distance to range (0, 1) and invert it
             normalized_distance = min_distance / np.linalg.norm(center)
             score = 1 - normalized_distance
             return score
     
     def early_termination(self):
-        if all(reward == -1 for reward in self.past_rewards[-5:]):
+        if all(reward <= -0.25 for reward in self.past_rewards[-5:]):
             print("Early termination due to low rewards")
             return True
         else:
@@ -240,9 +249,9 @@ class CoppeliaSimEnv(gym.Env):
         # elif action == Direction.BACK:  # backward
         #     self.rob.move_blocking(-speed, -speed, duration)
         elif action == Direction.LEFT:  # left
-            self.rob.move_blocking(-speed, speed, duration)
+            self.rob.move_blocking(-speed / 2, speed / 2, duration)
         elif action == Direction.RIGHT:  # right
-            self.rob.move_blocking(speed, -speed, duration)
+            self.rob.move_blocking(speed / 2, -speed / 2, duration)
         else:
             raise ValueError(f"Invalid action {action}")
 
@@ -264,7 +273,7 @@ class CoppeliaSimEnv(gym.Env):
         image = self.process_image(image, save_image=False)
         self.last_green_percent = self.green_percent
         self.green_percent = self.get_green_percent(image[:, :, 1])
-        print(f"Green percent: {self.green_percent}")
+        # print(f"Green percent: {self.green_percent}")
 
         # Update the observation with the new features and the image
         self.observation = {
@@ -285,6 +294,7 @@ class CoppeliaSimEnv(gym.Env):
         }
 
         self.reward = self.calculate_reward()
+        print('Reward: ', self.reward)
         self.past_rewards.append(self.reward)
 
         terminated = self.early_termination()
@@ -314,7 +324,7 @@ class CoppeliaSimEnv(gym.Env):
             raise RuntimeError("Simulation is not running")
         # Set phone pan and tilt
         # self.rob.set_phone_pan(50, 50)
-        self.rob.set_phone_tilt(80, 50)
+        self.rob.set_phone_tilt(90, 50)
         # Read IR
         self.ir_readings = np.array(self.rob.read_irs())
         self.ir_readings = self.ir_readings[self.mask]
@@ -331,7 +341,7 @@ class CoppeliaSimEnv(gym.Env):
         image = self.process_image(image, save_image=False)
         self.last_green_percent = self.green_percent
         self.green_percent = self.get_green_percent(image[:, :, 1])
-        print(f"Green percent: {self.green_percent}")
+        # print(f"Green percent: {self.green_percent}")
 
         # Update the observation with the new features and the image
         self.observation = {
@@ -475,17 +485,17 @@ def train_model(
         policy="MultiInputPolicy",
         env=vec_env,
         verbose=1,
-        train_freq=16,
+        train_freq=50,
         gradient_steps=-1,
         gamma=0.99,
-        exploration_fraction=0.3,
+        exploration_fraction=0.1,
         exploration_initial_eps=1.0,
-        exploration_final_eps=0.01,
+        exploration_final_eps=0.05,
         target_update_interval=10,
         learning_starts=50,
-        buffer_size=10000,
-        batch_size=128,
-        learning_rate=4e-3,
+        buffer_size=1000000,
+        batch_size=256,
+        learning_rate=0.0001,
         policy_kwargs=dict(
             net_arch=[256, 256],
             normalize_images=False,
@@ -593,15 +603,15 @@ def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
         train_model(
             rob,
-            n_episodes=25,
-            time_steps_per_episode=200,
+            n_episodes=1,
+            time_steps_per_episode=5000,
             verbose=1,
             load_model=False,
             n_envs=4,
             # model_name="DQN-20240614-020415_easy_50ep1kts",
         )
         # run_model(
-        #     rob, model_name="DQN-20240614-020415_easy_50ep1kts", n_steps=200, verbose=1
+        #     rob, model_name="DQN-20240618-204812", n_steps=500, verbose=1
         # )
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob, "DQN-20240614-130305", n_steps=200)
