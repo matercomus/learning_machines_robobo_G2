@@ -149,7 +149,7 @@ class CoppeliaSimEnv(gym.Env):
 
     def calculate_reward(self, sensor_max=200):
         # Big reward for collecting food
-        if self.collected_food > self.rob.nr_food_collected():
+        if self.rob.nr_food_collected() > self.collected_food:
             self.collected_food = self.rob.nr_food_collected()
             return 10
         # Same position penalty
@@ -157,7 +157,7 @@ class CoppeliaSimEnv(gym.Env):
         x, y = round(x, 1), round(y, 1)
         print('position: ', x, y)
         if (x, y) in self.position_history:
-            pos_p = 0.75
+            pos_p = 0.5
         else:
             pos_p = 0
         self.position_history.append((x, y))
@@ -176,7 +176,7 @@ class CoppeliaSimEnv(gym.Env):
                 sensor_max - min(self.ir_readings)
             )
         # Reward
-        return (self.green_percent - ir_p + bonus) * (1 - pos_p)
+        return (self.green_percent - ir_p + bonus) * pos_p
 
     def process_image(self, image, save_image=False):
         # Resize the image to 64x64 pixels
@@ -233,7 +233,7 @@ class CoppeliaSimEnv(gym.Env):
             return score
     
     def early_termination(self):
-        if all(reward <= -0.25 for reward in self.past_rewards[-5:]):
+        if all(reward <= -0.5 for reward in self.past_rewards[-5:]):
             print("Early termination due to low rewards")
             return True
         else:
@@ -470,12 +470,12 @@ def train_model(
     time_steps_per_episode=100,
     load_model=False,
     model_name=None,
-    n_envs=1,
+    n_envs=4,
     verbose=0,
 ):
     def make_env():
         env = CoppeliaSimEnv(rob=rob)
-        check_env(env)
+        # check_env(env)
         return env
 
     vec_env = make_vec_env(
@@ -493,7 +493,7 @@ def train_model(
         exploration_final_eps=0.05,
         target_update_interval=10,
         learning_starts=50,
-        buffer_size=1000000,
+        buffer_size=1000,
         batch_size=256,
         learning_rate=0.0001,
         policy_kwargs=dict(
