@@ -72,7 +72,7 @@ class CoppeliaSimEnv(gym.Env):
 
         # 4 actions: forward, backward, left, right
         self.action_space = spaces.Discrete(3)
-        self.image_shape = (64, 64, 3)
+        self.image_shape = (64, 64)
         # Define the observation space for the image
         self.image_space = spaces.Box(
             low=0, high=255, shape=self.image_shape, dtype=np.uint8
@@ -150,13 +150,13 @@ class CoppeliaSimEnv(gym.Env):
     def calculate_reward(self, sensor_max=200):
         # Big reward for collecting food
         if self.rob.nr_food_collected() > self.collected_food:
-            print('\n FOOD COLLECTED \n')
+            print("\n FOOD COLLECTED \n")
             self.collected_food = self.rob.nr_food_collected()
             return 10
         # Same position penalty
         x, y = self.rob.get_position().x, self.rob.get_position().y
         x, y = round(x, 1), round(y, 1)
-        print('position: ', x, y)
+        print("position: ", x, y)
         if (x, y) in self.position_history:
             pos_p = 0.5
         else:
@@ -187,32 +187,22 @@ class CoppeliaSimEnv(gym.Env):
         # Mask the image
         mask = cv2.inRange(hsv_image, lower_green, upper_green)
         masked_image = cv2.bitwise_and(image, image, mask=mask)
+        # Keep only the green channel
+        green_channel = masked_image[:, :, 1]
 
         if save_image:
             image_name = f"image_{self.image_counter}.png"
             print(f"Processing image {image_name}")
-            cv2.imwrite(
-                os.path.join(image_run_dir, image_name),
-                masked_image,
-            )
+            cv2.imwrite(os.path.join(image_run_dir, image_name), green_channel)
             self.image_counter += 1  # Increment the counter
 
-        return masked_image
+        return green_channel
 
-    # def get_green_percent(self, image):
-    #     # Count the number of non-black pixels
-    #     non_black_pixels = np.count_nonzero(image)
-    #     # Count the total number of pixels
-    #     total_pixels = 64 * 64
-    #     # Calculate the ratio of non-black pixels to total pixels
-    #     green_percent = non_black_pixels / total_pixels
-    #     return green_percent
-
-    def get_green_percent(self, image):
-         # Check if there are any 1s in the array
+    def get_green_dist_from_center(self, image):
+        # Check if there are any 1s in the array
         if not np.any(image):
             return 0
-         # Define the center of the arra
+        # Define the center of the arra
         center = np.array([32, 32])
         # Get the coordinates of all 1s in the array
         ones_positions = np.argwhere(image != 0)
@@ -228,14 +218,14 @@ class CoppeliaSimEnv(gym.Env):
             normalized_distance = min_distance / np.linalg.norm(center)
             score = 1 - normalized_distance
             return score
-    
+
     def early_termination(self):
         if all(reward < 0 for reward in self.past_rewards[-10:]):
             print("Early termination due to low rewards")
             return True
         else:
             return False
-        
+
     def step(self, action):
         speed = 50
         duration = 300
@@ -269,8 +259,9 @@ class CoppeliaSimEnv(gym.Env):
         image = self.rob.get_image_front()
         image = self.process_image(image, save_image=False)
         self.last_green_percent = self.green_percent
-        self.green_percent = self.get_green_percent(image[:, :, 1])
-        # print(f"Green percent: {self.green_percent}")
+        # self.green_percent = self.get_green_percent(image[:, :, 1])
+        self.green_percent = self.get_green_dist_from_center(image)
+        print(f"Green percent: {self.green_percent}")
 
         # Update the observation with the new features and the image
         self.observation = {
@@ -291,7 +282,7 @@ class CoppeliaSimEnv(gym.Env):
         }
 
         self.reward = self.calculate_reward()
-        print('Reward: ', self.reward)
+        print("Reward: ", self.reward)
         self.past_rewards.append(self.reward)
 
         terminated = self.early_termination()
@@ -322,7 +313,7 @@ class CoppeliaSimEnv(gym.Env):
         # Set phone pan and tilt
         # self.rob.set_phone_pan(50, 50)
         self.collected_food = 0
-        self.rob.set_phone_tilt(90, 50)
+        self.rob.set_phone_tilt(100, 50)
         # Read IR
         self.ir_readings = np.array(self.rob.read_irs())
         self.ir_readings = self.ir_readings[self.mask]
@@ -338,7 +329,7 @@ class CoppeliaSimEnv(gym.Env):
         image = self.rob.get_image_front()
         image = self.process_image(image, save_image=False)
         self.last_green_percent = self.green_percent
-        self.green_percent = self.get_green_percent(image[:, :, 1])
+        self.green_percent = self.get_green_dist_from_center(image)
         # print(f"Green percent: {self.green_percent}")
 
         # Update the observation with the new features and the image
@@ -489,11 +480,11 @@ def train_model(
         exploration_fraction=0.1,
         exploration_initial_eps=1.0,
         exploration_final_eps=0.05,
-        target_update_interval=10,
-        learning_starts=50,
+        target_update_interval=5,
+        learning_starts=10,
         buffer_size=1000,
         batch_size=256,
-        learning_rate=0.0001,
+        learning_rate=0.001,
         policy_kwargs=dict(
             net_arch=[256, 256],
             normalize_images=False,
