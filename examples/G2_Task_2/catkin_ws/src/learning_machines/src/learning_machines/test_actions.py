@@ -172,8 +172,13 @@ class CoppeliaSimEnv(gym.Env):
             ir_p = (highest_ir - min(self.ir_readings)) / (
                 sensor_max - min(self.ir_readings)
             )
+        # Reward for going forward if green_percent is high
+        if self.green_percent > 0.8 and self.action == Direction.FRONT:
+            forward_reward = 5
+        else:
+            forward_reward = 0
         # Reward
-        return (self.green_percent - ir_p) * pos_p
+        return (self.green_percent - ir_p) * pos_p + forward_reward
 
     def process_image(self, image, save_image=False):
         # Resize the image to 64x64 pixels
@@ -220,7 +225,7 @@ class CoppeliaSimEnv(gym.Env):
             return score
 
     def early_termination(self):
-        if all(reward < 0 for reward in self.past_rewards[-10:]):
+        if all(reward < 0 for reward in self.past_rewards[-25:]):
             print("Early termination due to low rewards")
             return True
         else:
