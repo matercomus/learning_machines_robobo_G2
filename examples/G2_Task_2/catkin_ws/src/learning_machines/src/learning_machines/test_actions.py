@@ -163,21 +163,17 @@ class CoppeliaSimEnv(gym.Env):
             pos_p = 0
         self.position_history.append((x, y))
         # IR readings penalty
-        bonus = 0
         highest_ir = max(self.ir_readings)
         if self.green_percent > 0:
             ir_p = 0
-            #extra reward for forward action
-            # if self.action == Direction.FRONT:
-            #     bonus = 0.2
         elif highest_ir >= sensor_max:
-            ir_p = 1
+            ir_p = 10
         else:
             ir_p = (highest_ir - min(self.ir_readings)) / (
                 sensor_max - min(self.ir_readings)
             )
         # Reward
-        return (self.green_percent - ir_p + bonus) * pos_p
+        return (self.green_percent - ir_p) * pos_p
 
     def process_image(self, image, save_image=False):
         # Resize the image to 64x64 pixels
@@ -234,7 +230,7 @@ class CoppeliaSimEnv(gym.Env):
             return score
     
     def early_termination(self):
-        if all(reward <= -0.5 for reward in self.past_rewards[-5:]):
+        if all(reward < 0 for reward in self.past_rewards[-10:]):
             print("Early termination due to low rewards")
             return True
         else:
@@ -604,15 +600,15 @@ def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
         train_model(
             rob,
-            n_episodes=1,
-            time_steps_per_episode=5000,
+            n_episodes=20,
+            time_steps_per_episode=100,
             verbose=1,
             load_model=False,
-            n_envs=4,
+            n_envs=1,
             # model_name="DQN-20240614-020415_easy_50ep1kts",
         )
         # run_model(
-        #     rob, model_name="DQN-20240618-204812", n_steps=500, verbose=1
+        #     rob, model_name="DQN-20240619-122312", n_steps=500, verbose=1
         # )
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob, "DQN-20240614-130305", n_steps=200)
