@@ -153,6 +153,7 @@ class CoppeliaSimEnv(gym.Env):
             print("\n FOOD COLLECTED \n")
             self.collected_food = self.rob.nr_food_collected()
             return 10
+
         # Same position penalty
         x, y = self.rob.get_position().x, self.rob.get_position().y
         x, y = round(x, 1), round(y, 1)
@@ -162,6 +163,7 @@ class CoppeliaSimEnv(gym.Env):
         else:
             pos_p = 0
         self.position_history.append((x, y))
+
         # IR readings penalty
         highest_ir = max(self.ir_readings)
         if self.green_percent > 0:
@@ -172,6 +174,7 @@ class CoppeliaSimEnv(gym.Env):
             ir_p = (highest_ir - min(self.ir_readings)) / (
                 sensor_max - min(self.ir_readings)
             )
+
         # Reward for going forward if green_percent is high
         if self.green_percent > 0.6 and self.action == Direction.FRONT:
             forward_reward = 5
@@ -181,11 +184,14 @@ class CoppeliaSimEnv(gym.Env):
             forward_reward = 5
         else:
             forward_reward = 0
+
         # Reward for moving towards the green box
         if self.green_percent > self.last_green_percent:
             green_box_reward = 5
-        else:
+        elif self.green_percent < self.last_green_percent:
             green_box_reward = -1
+        else:
+            green_box_reward = 0
         # Reward
         return (self.green_percent - ir_p) * pos_p + forward_reward + green_box_reward
 
@@ -612,13 +618,13 @@ def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
         train_model(
             rob,
-            n_episodes=50,
+            n_episodes=1000,
             time_steps_per_episode=100,
             verbose=1,
             load_model=False,
             n_envs=1,
             # model_name="DQN-20240614-020415_easy_50ep1kts",
         )
-        # run_model(rob, model_name="DQN-20240619-232040", n_steps=500, verbose=1)
+        # run_model(rob, model_name="DQN-20240620-001942", n_steps=250, verbose=1)
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob, "DQN-20240619-232040", n_steps=200)
