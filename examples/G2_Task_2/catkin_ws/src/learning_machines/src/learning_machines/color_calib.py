@@ -3,7 +3,7 @@ import os
 import numpy as np
 
 calib_photos_dir = "/home/matt/Dev/MS_AI/learning_machines_robobo_G2/examples/G2_Task_2/LM_Nokia_color_calib_photos/"
-image_run_dir = "/home/matt/Dev/MS_AI/learning_machines_robobo_G2/examples/G2_Task_2/LM_Nokia_color_calib_photos_processed_stiched/"
+image_run_dir = "/home/matt/Dev/MS_AI/learning_machines_robobo_G2/examples/G2_Task_2/LM_Nokia_color_calib_photos_processed_stiched_gco/"
 os.makedirs(image_run_dir, exist_ok=True)
 
 
@@ -25,9 +25,13 @@ def process_image(image, save_image=False):
     # Mask the image
     mask = cv2.inRange(hsv_image, lower_green, upper_green)
     masked_image = cv2.bitwise_and(image, image, mask=mask)
+    green_channel = masked_image[:, :, 1]
+
+    # Convert the single channel image to a 3-channel image
+    green_channel_3c = cv2.cvtColor(green_channel, cv2.COLOR_GRAY2BGR)
 
     # Stitch the original image with the processed image
-    stitched_image = cv2.hconcat([image, masked_image])
+    stitched_image = cv2.hconcat([image, green_channel_3c])
 
     if save_image:
         cv2.imwrite(
