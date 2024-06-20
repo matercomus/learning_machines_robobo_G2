@@ -16,17 +16,17 @@ from robobo_interface import (
 def run_all_actions(rob: IRobobo):
     env = train_env(rob)
     env.rob.play_simulation()
-    # env.training_loop()
-    env.run_trained_model()
+    env.training_loop()
+    # env.run_trained_model()
     env.rob.stop_simulation()
 
 # Define the neural network model
 class DQN(nn.Module):
     def __init__(self, state_size, action_size):
         super(DQN, self).__init__()
-        self.fc1 = nn.Linear(state_size, 64)
-        self.fc2 = nn.Linear(64, 64)
-        self.fc3 = nn.Linear(64, action_size)
+        self.fc1 = nn.Linear(state_size, 32)
+        self.fc2 = nn.Linear(32, 32)
+        self.fc3 = nn.Linear(32, action_size)
         self.initialize_weights()
 
     def initialize_weights(self):
@@ -47,17 +47,17 @@ class DQNAgent:
     def __init__(self, state_size, action_size):
         self.state_size = state_size
         self.action_size = action_size
-        self.memory = deque(maxlen=2048)
+        self.memory = deque(maxlen=5000)
         self.gamma = 0.95  # discount rate
         self.epsilon = 1  # exploration rate
-        self.epsilon_min = 0.01
+        self.epsilon_min = 0.2
         self.epsilon_decay = 0.9
         self.learning_rate = 0.001
         self.model = DQN(state_size, action_size)
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(
             self.model.parameters(), lr=self.learning_rate)
-        self.batch_size = 20
+        self.batch_size = 64
 
     def save_model(self, file_name):
         torch.save(self.model.state_dict(), file_name)
@@ -101,7 +101,7 @@ class DQNAgent:
 class train_env():
     def __init__(self, rob):
         self.rob = rob
-        self.state_size = 13  # Number of IR sensors
+        self.state_size = 13  # Number of Feautures
         self.action_size = 3  # Three discrete actions: Forward, Left, Right
         self.agent = DQNAgent(self.state_size, self.action_size)
         self.csv_file = '/root/results/data.csv'
@@ -133,7 +133,7 @@ class train_env():
         if self.rob.nr_food_collected() > self.collected_food:
             print('\n FOOD COLLECTED \n')
             self.collected_food = self.rob.nr_food_collected()
-            return 10
+            return 40
         # Same position penalty
         x, y = self.rob.get_position().x, self.rob.get_position().y
         x, y = round(x, 1), round(y, 1)
@@ -144,17 +144,70 @@ class train_env():
             pos_p = 0
         self.position_history.append((x, y))
         # IR readings penalty
+        ir_p = 0
         highest_ir = max(self.ir_readings)
         if self.green_percent > 0:
             ir_p = 0
         elif highest_ir >= sensor_max:
-            ir_p = 10
+            ir_p = 40
         else:
             ir_p = (highest_ir - min(self.ir_readings)) / (
                 sensor_max - min(self.ir_readings)
             )
+            ir_p = ir_p * -10
         # Reward
-        return (self.green_percent - ir_p) * pos_p
+        return (self.green_percent * 10 - ir_p) * pos_p
+
+    
+    # def reward_function(self, sensor_max=200):
+    #     # Big reward for collecting food
+    #     if self.rob.nr_food_collected() > self.collected_food:
+    #         print("\n FOOD COLLECTED \n")
+    #         self.collected_food = self.rob.nr_food_collected()
+    #         return 10
+
+    #     # Same position penalty
+    #     x, y = self.rob.get_position().x, self.rob.get_position().y
+    #     x, y = round(x, 1), round(y, 1)
+    #     print("position: ", x, y)
+    #     if (x, y) in self.position_history:
+    #         pos_p = 0.5
+    #     else:
+    #         pos_p = 0
+    #     self.position_history.append((x, y))
+
+    #     # IR readings penalty
+    #     highest_ir = max(self.ir_readings)
+    #     if self.green_percent > 0:
+    #         ir_p = 0
+    #     elif highest_ir >= sensor_max:
+    #         ir_p = 40
+    #     else:
+    #         ir_p = (highest_ir - min(self.ir_readings)) / (
+    #             sensor_max - min(self.ir_readings)
+    #         )
+
+    #     # Reward for going forward if green_percent is high
+    #     if self.green_percent > 0.6 and self.action == 0:
+    #         forward_reward = 5
+    #     elif self.green_percent < 0.6 and (
+    #         self.action == 1 or self.action == 2
+    #     ):
+    #         forward_reward = 5
+    #     else:
+    #         forward_reward = 0
+
+    #     # Reward for moving towards the green box
+    #     if self.green_percent > self.last_green_percent:
+    #         green_box_reward = 5
+    #     elif self.green_percent < self.last_green_percent:
+    #         green_box_reward = -1
+    #     else:
+    #         green_box_reward = 0
+    #     # Reward
+    #     return (self.green_percent * 10 - ir_p + forward_reward + green_box_reward) * pos_p
+
+
 
     def step(self, state, time=200):
         self.action = self.agent.act(state)
@@ -214,15 +267,14 @@ class train_env():
             return score
 
     def early_termination(self):
-        print('last rewards: ', self.past_rewards[-5:])
-        if all(self.reward <= -5 for self.reward in self.past_rewards[-5:]):
+        if all(self.reward <= -5 for self.reward in self.past_rewards[-10:]):
             print("Early termination due to low rewards")
             return True
         return False
 
     def training_loop(self):
         print('Training started')
-        for epoch in range(10):
+        for epoch in range(100):
             self.rob.stop_simulation()
             self.rob.play_simulation()
             if epoch > 0:
@@ -231,7 +283,7 @@ class train_env():
             state = np.concatenate([self.ir_readings, np.array([
                 self.action, self.green_percent, self.last_green_percent, self.reward, self.last_reward
             ])])
-            for _ in range(150):
+            for _ in range(128):
                 next_state = self.step(state)
                 self.agent.remember(state, self.action,
                                     self.reward, next_state)
@@ -244,9 +296,7 @@ class train_env():
                 state = next_state
                 print('Reward: ', self.reward)
                 if self.early_termination():
-                    self.rob.stop_simulation()
-                    self.rob.play_simulation()
-                    self.values_reset()
+                    break
 
             if len(self.agent.memory) >= self.agent.batch_size:
                 self.agent.replay()
