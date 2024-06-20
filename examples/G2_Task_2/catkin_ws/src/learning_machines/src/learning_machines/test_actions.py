@@ -233,8 +233,14 @@ class CoppeliaSimEnv(gym.Env):
             score = 1 - normalized_distance
             return score
 
-    def early_termination(self):
-        if all(reward < 0 for reward in self.past_rewards[-20:]):
+    def early_termination(self, n_past_rewards=20, reward_threshold=0):
+        if (
+            all(
+                reward < reward_threshold
+                for reward in self.past_rewards[-n_past_rewards:]
+            )
+            and len(self.past_rewards) > n_past_rewards
+        ):
             print("Early termination due to low rewards")
             return True
         else:
