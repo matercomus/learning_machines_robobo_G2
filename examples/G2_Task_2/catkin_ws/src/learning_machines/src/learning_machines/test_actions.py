@@ -124,29 +124,6 @@ class CoppeliaSimEnv(gym.Env):
         self.grid_size = (1000, 1000)
         self.grid = np.zeros(self.grid_size)
 
-    def calculate_speed(self, duration):
-        # Get the current positions of the left and right wheels
-        wheel_position = self.rob.read_wheels()
-        current_left_wheel_pos = wheel_position.wheel_pos_l
-        current_right_wheel_pos = wheel_position.wheel_pos_r
-
-        # Calculate the speeds of the left and right wheels
-        left_motor_speed = (
-            current_left_wheel_pos - self.previous_left_wheel_pos
-        ) / duration
-        right_motor_speed = (
-            current_right_wheel_pos - self.previous_right_wheel_pos
-        ) / duration
-
-        # Update the previous wheel positions
-        self.previous_left_wheel_pos = current_left_wheel_pos
-        self.previous_right_wheel_pos = current_right_wheel_pos
-
-        # Calculate the translational speed
-        speed = abs(left_motor_speed + right_motor_speed)
-
-        return speed
-
     def calculate_reward(self, sensor_max=200):
         # Big reward for collecting food
         if self.rob.nr_food_collected() > self.collected_food:
@@ -315,13 +292,6 @@ class CoppeliaSimEnv(gym.Env):
         truncated = False
         info = {}
 
-        if self.verbose:
-            print("----" * 20)
-            print("Step")
-            print(
-                f"Action: {action}\nObservation: {self.observation}\nReward: {self.reward}"
-            )
-
         return (
             self.observation,
             self.reward,
@@ -339,6 +309,13 @@ class CoppeliaSimEnv(gym.Env):
         # Set phone pan and tilt
         # self.rob.set_phone_pan(50, 50)
         self.collected_food = 0
+        self.green_percent = 0
+        self.last_green_percent = 0
+        self.past_rewards = []
+        self.ir_readings = []
+        self.actions = []
+        self.position_history = []
+        self.past_rewards = []
         self.rob.set_phone_tilt(109, 50)
         # Read IR
         self.ir_readings = np.array(self.rob.read_irs())
@@ -500,7 +477,7 @@ def train_model(
         policy="MultiInputPolicy",
         env=vec_env,
         verbose=1,
-        train_freq=50,
+        train_freq=10,
         gradient_steps=-1,
         gamma=0.99,
         exploration_fraction=0.1,
@@ -616,15 +593,15 @@ def test_hardware(rob: "HardwareRobobo", model_name: str, n_steps: int = None):
 
 def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
-        train_model(
-            rob,
-            n_episodes=1000,
-            time_steps_per_episode=100,
-            verbose=1,
-            load_model=False,
-            n_envs=1,
-            # model_name="DQN-20240614-020415_easy_50ep1kts",
-        )
-        # run_model(rob, model_name="DQN-20240620-001942", n_steps=250, verbose=1)
+        # train_model(
+        #     rob,
+        #     n_episodes=20,
+        #     time_steps_per_episode=200,
+        #     verbose=1,
+        #     load_model=False,
+        #     n_envs=1,
+        #     # model_name="DQN-20240614-020415_easy_50ep1kts",
+        # )
+        run_model(rob, model_name="DQN-20240620-124908", n_steps=250, verbose=1)
     elif isinstance(rob, HardwareRobobo):
         test_hardware(rob, "DQN-20240619-232040", n_steps=200)
