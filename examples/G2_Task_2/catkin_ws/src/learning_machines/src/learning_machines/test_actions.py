@@ -173,12 +173,21 @@ class CoppeliaSimEnv(gym.Env):
                 sensor_max - min(self.ir_readings)
             )
         # Reward for going forward if green_percent is high
-        if self.green_percent > 0.8 and self.action == Direction.FRONT:
+        if self.green_percent > 0.6 and self.action == Direction.FRONT:
+            forward_reward = 5
+        elif self.green_percent < 0.6 and (
+            self.action == Direction.LEFT or self.action == Direction.RIGHT
+        ):
             forward_reward = 5
         else:
             forward_reward = 0
+        # Reward for moving towards the green box
+        if self.green_percent > self.last_green_percent:
+            green_box_reward = 5
+        else:
+            green_box_reward = -1
         # Reward
-        return (self.green_percent - ir_p) * pos_p + forward_reward
+        return (self.green_percent - ir_p) * pos_p + forward_reward + green_box_reward
 
     def process_image(self, image, save_image=False):
         # Resize the image to 64x64 pixels
@@ -225,14 +234,14 @@ class CoppeliaSimEnv(gym.Env):
             return score
 
     def early_termination(self):
-        if all(reward < 0 for reward in self.past_rewards[-25:]):
+        if all(reward < 0 for reward in self.past_rewards[-20:]):
             print("Early termination due to low rewards")
             return True
         else:
             return False
 
     def step(self, action):
-        speed = 50
+        speed = 70
         duration = 300
         # Map integer action to Direction instance
         action = Direction(action)
@@ -318,7 +327,7 @@ class CoppeliaSimEnv(gym.Env):
         # Set phone pan and tilt
         # self.rob.set_phone_pan(50, 50)
         self.collected_food = 0
-        self.rob.set_phone_tilt(100, 50)
+        self.rob.set_phone_tilt(109, 50)
         # Read IR
         self.ir_readings = np.array(self.rob.read_irs())
         self.ir_readings = self.ir_readings[self.mask]
@@ -597,15 +606,13 @@ def run_all_actions(rob: IRobobo):
     if isinstance(rob, SimulationRobobo):
         train_model(
             rob,
-            n_episodes=20,
+            n_episodes=50,
             time_steps_per_episode=100,
             verbose=1,
             load_model=False,
             n_envs=1,
             # model_name="DQN-20240614-020415_easy_50ep1kts",
         )
-        # run_model(
-        #     rob, model_name="DQN-20240619-122312", n_steps=500, verbose=1
-        # )
+        # run_model(rob, model_name="DQN-20240619-232040", n_steps=500, verbose=1)
     elif isinstance(rob, HardwareRobobo):
-        test_hardware(rob, "DQN-20240614-130305", n_steps=200)
+        test_hardware(rob, "DQN-20240619-232040", n_steps=200)
