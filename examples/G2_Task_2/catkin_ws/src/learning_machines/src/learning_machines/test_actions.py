@@ -16,8 +16,8 @@ from robobo_interface import (
 def run_all_actions(rob: IRobobo):
     env = train_env(rob)
     env.rob.play_simulation()
-    env.training_loop()
-    # env.run_trained_model()
+    # env.training_loop()
+    env.run_trained_model()
     env.rob.stop_simulation()
 
 # Define the neural network model
@@ -78,21 +78,22 @@ class DQNAgent:
         return np.argmax(act_values.squeeze().cpu().numpy())
 
     def replay(self):
-        minibatch = random.sample(self.memory, self.batch_size)
-        for state, action, reward, next_state in minibatch:
-            state = torch.FloatTensor(state)
-            next_state = torch.FloatTensor(next_state)
-            target = self.model(state).detach().clone()
+        for _ in range(100):
+            minibatch = random.sample(self.memory, self.batch_size)
+            for state, action, reward, next_state in minibatch:
+                state = torch.FloatTensor(state)
+                next_state = torch.FloatTensor(next_state)
+                target = self.model(state).detach().clone()
 
-            Q_future = self.model(next_state).detach().max().item()
-            target[action] = reward + self.gamma * Q_future
+                Q_future = self.model(next_state).detach().max().item()
+                target[action] = reward + self.gamma * Q_future
 
-            target_f = self.model(state)
-            self.optimizer.zero_grad()
-            loss = self.criterion(target_f, target)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-            self.optimizer.step()
+                target_f = self.model(state)
+                self.optimizer.zero_grad()
+                loss = self.criterion(target_f, target)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                self.optimizer.step()
 
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
@@ -154,69 +155,18 @@ class train_env():
             ir_p = (highest_ir - min(self.ir_readings)) / (
                 sensor_max - min(self.ir_readings)
             )
-            ir_p = ir_p * -10
+            ir_p = ir_p * 10
         # Reward
         return (self.green_percent * 10 - ir_p) * pos_p
-
-    
-    # def reward_function(self, sensor_max=200):
-    #     # Big reward for collecting food
-    #     if self.rob.nr_food_collected() > self.collected_food:
-    #         print("\n FOOD COLLECTED \n")
-    #         self.collected_food = self.rob.nr_food_collected()
-    #         return 10
-
-    #     # Same position penalty
-    #     x, y = self.rob.get_position().x, self.rob.get_position().y
-    #     x, y = round(x, 1), round(y, 1)
-    #     print("position: ", x, y)
-    #     if (x, y) in self.position_history:
-    #         pos_p = 0.5
-    #     else:
-    #         pos_p = 0
-    #     self.position_history.append((x, y))
-
-    #     # IR readings penalty
-    #     highest_ir = max(self.ir_readings)
-    #     if self.green_percent > 0:
-    #         ir_p = 0
-    #     elif highest_ir >= sensor_max:
-    #         ir_p = 40
-    #     else:
-    #         ir_p = (highest_ir - min(self.ir_readings)) / (
-    #             sensor_max - min(self.ir_readings)
-    #         )
-
-    #     # Reward for going forward if green_percent is high
-    #     if self.green_percent > 0.6 and self.action == 0:
-    #         forward_reward = 5
-    #     elif self.green_percent < 0.6 and (
-    #         self.action == 1 or self.action == 2
-    #     ):
-    #         forward_reward = 5
-    #     else:
-    #         forward_reward = 0
-
-    #     # Reward for moving towards the green box
-    #     if self.green_percent > self.last_green_percent:
-    #         green_box_reward = 5
-    #     elif self.green_percent < self.last_green_percent:
-    #         green_box_reward = -1
-    #     else:
-    #         green_box_reward = 0
-    #     # Reward
-    #     return (self.green_percent * 10 - ir_p + forward_reward + green_box_reward) * pos_p
-
-
 
     def step(self, state, time=200):
         self.action = self.agent.act(state)
         if self.action == 0:  # Forward
             self.rob.move_blocking(50, 50, time)
         elif self.action == 1:  # Left
-            self.rob.move_blocking(-25, 25, time)
+            self.rob.move_blocking(-15, 35, time)
         elif self.action == 2:  # Right
-            self.rob.move_blocking(25, -25, time)
+            self.rob.move_blocking(35, -15, time)
 
         self.ir_readings = self.rob.read_irs()
         image = self.process_image(self.rob.get_image_front())
@@ -277,6 +227,7 @@ class train_env():
         for epoch in range(100):
             self.rob.stop_simulation()
             self.rob.play_simulation()
+            self.rob.set_phone_tilt(109, 50)
             if epoch > 0:
                 self.values_reset()
             self.ir_readings = self.rob.read_irs()
@@ -291,7 +242,7 @@ class train_env():
                 with open(self.csv_file, mode='a', newline='') as file:
                     writer = csv.writer(file)
                     writer.writerow(
-                        [epoch, state, self.action, self.reward, next_state])
+                        [epoch, state, next_state])
                     
                 state = next_state
                 print('Reward: ', self.reward)
@@ -307,6 +258,7 @@ class train_env():
         # Load the trained model
         self.rob.stop_simulation()
         self.rob.play_simulation()
+        self.rob.set_phone_tilt(109, 50)
         self.agent.load_model('/root/results/dqn_model.pth')
         self.ir_readings = self.rob.read_irs()
         state = np.concatenate([self.ir_readings, np.array([
