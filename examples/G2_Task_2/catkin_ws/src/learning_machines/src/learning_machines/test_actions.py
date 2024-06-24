@@ -20,6 +20,7 @@ def run_all_actions(rob: IRobobo):
     env.run_trained_model()
     env.rob.stop_simulation()
 
+
 # Define the neural network model
 class DQN(nn.Module):
     def __init__(self, state_size, action_size):
@@ -55,8 +56,7 @@ class DQNAgent:
         self.learning_rate = 0.001
         self.model = DQN(state_size, action_size)
         self.criterion = nn.MSELoss()
-        self.optimizer = optim.Adam(
-            self.model.parameters(), lr=self.learning_rate)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         self.batch_size = 64
 
     def save_model(self, file_name):
@@ -99,13 +99,13 @@ class DQNAgent:
             self.epsilon *= self.epsilon_decay
 
 
-class train_env():
+class train_env:
     def __init__(self, rob):
         self.rob = rob
         self.state_size = 13  # Number of Feautures
         self.action_size = 3  # Three discrete actions: Forward, Left, Right
         self.agent = DQNAgent(self.state_size, self.action_size)
-        self.csv_file = '/root/results/data.csv'
+        self.csv_file = "/root/results/data.csv"
 
         # State values
         self.action = 0
@@ -132,13 +132,13 @@ class train_env():
     def reward_function(self, sensor_max=200):
         # Big reward for collecting food
         if self.rob.nr_food_collected() > self.collected_food:
-            print('\n FOOD COLLECTED \n')
+            print("\n FOOD COLLECTED \n")
             self.collected_food = self.rob.nr_food_collected()
             return 40
         # Same position penalty
         x, y = self.rob.get_position().x, self.rob.get_position().y
         x, y = round(x, 1), round(y, 1)
-        print('\n position: ', x, y)
+        print("\n position: ", x, y)
         if (x, y) in self.position_history:
             pos_p = 0.5
         else:
@@ -176,9 +176,20 @@ class train_env():
         self.reward = self.reward_function()
         self.past_rewards.append(self.reward)
 
-        next_state = np.concatenate([self.ir_readings, np.array([
-            self.action, self.green_percent, self.last_green_percent, self.reward, self.last_reward
-        ])])
+        next_state = np.concatenate(
+            [
+                self.ir_readings,
+                np.array(
+                    [
+                        self.action,
+                        self.green_percent,
+                        self.last_green_percent,
+                        self.reward,
+                        self.last_reward,
+                    ]
+                ),
+            ]
+        )
 
         return next_state
 
@@ -199,7 +210,7 @@ class train_env():
         # Check if there are any 1s in the array
         if not np.any(image):
             return 0
-         # Define the center of the arra
+        # Define the center of the arra
         center = np.array([32, 32])
         # Get the coordinates of all 1s in the array
         ones_positions = np.argwhere(image != 0)
@@ -223,7 +234,7 @@ class train_env():
         return False
 
     def training_loop(self):
-        print('Training started')
+        print("Training started")
         for epoch in range(100):
             self.rob.stop_simulation()
             self.rob.play_simulation()
@@ -231,39 +242,59 @@ class train_env():
             if epoch > 0:
                 self.values_reset()
             self.ir_readings = self.rob.read_irs()
-            state = np.concatenate([self.ir_readings, np.array([
-                self.action, self.green_percent, self.last_green_percent, self.reward, self.last_reward
-            ])])
+            state = np.concatenate(
+                [
+                    self.ir_readings,
+                    np.array(
+                        [
+                            self.action,
+                            self.green_percent,
+                            self.last_green_percent,
+                            self.reward,
+                            self.last_reward,
+                        ]
+                    ),
+                ]
+            )
             for _ in range(128):
                 next_state = self.step(state)
-                self.agent.remember(state, self.action,
-                                    self.reward, next_state)
+                self.agent.remember(state, self.action, self.reward, next_state)
                 # store data
-                with open(self.csv_file, mode='a', newline='') as file:
+                with open(self.csv_file, mode="a", newline="") as file:
                     writer = csv.writer(file)
-                    writer.writerow(
-                        [epoch, state, next_state])
-                    
+                    writer.writerow([epoch, state, next_state])
+
                 state = next_state
-                print('Reward: ', self.reward)
+                print("Reward: ", self.reward)
                 if self.early_termination():
                     break
 
             if len(self.agent.memory) >= self.agent.batch_size:
                 self.agent.replay()
-            print(f'end of {epoch + 1} epoch')
-            self.agent.save_model('/root/results/dqn_model.pth')
+            print(f"end of {epoch + 1} epoch")
+            self.agent.save_model("/root/results/dqn_model.pth")
 
     def run_trained_model(self, max_steps=200):
         # Load the trained model
         self.rob.stop_simulation()
         self.rob.play_simulation()
         self.rob.set_phone_tilt(109, 50)
-        self.agent.load_model('/root/results/dqn_model.pth')
+        self.agent.load_model("/root/results/dqn_model.pth")
         self.ir_readings = self.rob.read_irs()
-        state = np.concatenate([self.ir_readings, np.array([
-            self.action, self.green_percent, self.last_green_percent, self.reward, self.last_reward
-        ])])
+        state = np.concatenate(
+            [
+                self.ir_readings,
+                np.array(
+                    [
+                        self.action,
+                        self.green_percent,
+                        self.last_green_percent,
+                        self.reward,
+                        self.last_reward,
+                    ]
+                ),
+            ]
+        )
         state = self.rob.read_irs()
         total_reward = 0
         for step in range(max_steps):
@@ -273,6 +304,8 @@ class train_env():
             total_reward += reward
 
             # Optionally, print or log the state, action, and reward
-            print(f'Step: {step}, State: {state}, Action: {self.action}, Reward: {reward}\n')
-            print(f'Total Reward: {total_reward}')
+            print(
+                f"Step: {step}, State: {state}, Action: {self.action}, Reward: {reward}\n"
+            )
+            print(f"Total Reward: {total_reward}")
             state = next_state
