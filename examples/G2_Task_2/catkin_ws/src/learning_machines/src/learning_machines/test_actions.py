@@ -129,12 +129,12 @@ class train_env:
         self.collected_food = 0
         self.past_rewards = []
 
-    def reward_function(self, sensor_max=200):
+    def reward_function(self):
         # Big reward for collecting food
         if self.rob.nr_food_collected() > self.collected_food:
             print("\n FOOD COLLECTED \n")
             self.collected_food = self.rob.nr_food_collected()
-            return 40
+            reward = 40
         # Same position penalty
         x, y = self.rob.get_position().x, self.rob.get_position().y
         x, y = round(x, 1), round(y, 1)
@@ -149,15 +149,24 @@ class train_env:
         highest_ir = max(self.ir_readings)
         if self.green_percent > 0:
             ir_p = 0
-        elif highest_ir >= sensor_max:
+        elif highest_ir >= 1.0:
             ir_p = 40
         else:
-            ir_p = (highest_ir - min(self.ir_readings)) / (
-                sensor_max - min(self.ir_readings)
-            )
-            ir_p = ir_p * 10
+            ir_p = highest_ir * 10
         # Reward
-        return (self.green_percent * 10 - ir_p) * pos_p
+        reward = (self.green_percent * 10 - ir_p) * pos_p
+
+        # Define the bin edges for digitization
+        bins = np.linspace(-40, 40, 21)  # 21 edges for 20 bins
+        # Digitize the reward
+        digitized_reward = (
+            np.digitize(reward, bins) - 1
+        )  # Subtract 1 to make bins start from 0
+
+        # Convert digitized reward back to float in range -1.0 to 1.0
+        float_reward = digitized_reward / 10.0 - 1.0
+
+        return float_reward
 
     def step(self, state, time=200):
         self.action = self.agent.act(state)
@@ -168,7 +177,7 @@ class train_env:
         elif self.action == 2:  # Right
             self.rob.move_blocking(35, -15, time)
 
-        self.ir_readings = self.rob.read_irs()
+        self.ir_readings = self.read_discrete_irs()
         image = self.process_image(self.rob.get_image_front())
         self.last_green_percent = self.green_percent
         self.green_percent = self.get_green_percent(image[:, :, 1])
@@ -192,6 +201,23 @@ class train_env:
         )
 
         return next_state
+
+    def read_discrete_irs(self):
+        ir_readings = self.rob.read_irs()
+        discrete_ir_readings = []
+        top_ir_threshold = 200
+        bottom_ir_threshold = 50
+        for ir in ir_readings:
+            # Normalize the IR readings to range (0, 1)
+            normalized_ir = (ir - bottom_ir_threshold) / (
+                top_ir_threshold - bottom_ir_threshold
+            )
+            discrete_ir = np.digitize(normalized_ir, np.linspace(0, 1, 11)) - 1
+            # Convert digitized IR reading back to float in range 0.0 to 1.0
+            float_ir = discrete_ir / 10.0
+            discrete_ir_readings.append(float_ir)
+
+        return discrete_ir_readings
 
     def process_image(self, image):
         # Resize the image to 64x64 pixels
@@ -225,7 +251,18 @@ class train_env:
             # Normalize distance to range (0, 1) and invert it
             normalized_distance = min_distance / np.linalg.norm(center)
             score = 1 - normalized_distance
-            return score
+
+        # Define the bin edges for digitization
+        bins = np.linspace(0, 1, 11)  # 11 edges for 10 bins
+        # Digitize the score
+        digitized_score = (
+            np.digitize(score, bins) - 1
+        )  # Subtract 1 to make bins start from 0
+
+        # Convert digitized score back to float in range 0.0 to 1.0
+        float_score = digitized_score / 10.0
+
+        return float_score
 
     def early_termination(self):
         if all(self.reward <= -5 for self.reward in self.past_rewards[-10:]):
@@ -241,7 +278,7 @@ class train_env:
             self.rob.set_phone_tilt(109, 50)
             if epoch > 0:
                 self.values_reset()
-            self.ir_readings = self.rob.read_irs()
+            self.ir_readings = self.read_discrete_irs()
             state = np.concatenate(
                 [
                     self.ir_readings,
@@ -280,7 +317,7 @@ class train_env:
         self.rob.play_simulation()
         self.rob.set_phone_tilt(109, 50)
         self.agent.load_model("/root/results/dqn_model.pth")
-        self.ir_readings = self.rob.read_irs()
+        self.ir_readings = self.read_discrete_irs()
         state = np.concatenate(
             [
                 self.ir_readings,
@@ -295,7 +332,7 @@ class train_env:
                 ),
             ]
         )
-        state = self.rob.read_irs()
+        state = self.read_discrete_irs()
         total_reward = 0
         for step in range(max_steps):
             # Use the trained model to decide actions
