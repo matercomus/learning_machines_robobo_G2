@@ -16,8 +16,8 @@ from robobo_interface import (
 def run_all_actions(rob: IRobobo):
     env = train_env(rob)
     env.rob.play_simulation()
-    # env.training_loop()
-    env.run_trained_model()
+    env.training_loop()
+    # env.run_trained_model()
     env.rob.stop_simulation()
 
 
