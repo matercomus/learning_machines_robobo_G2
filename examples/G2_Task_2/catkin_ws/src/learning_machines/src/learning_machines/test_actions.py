@@ -131,9 +131,14 @@ class train_env:
 
     def reward_function(self):
         # Big reward for collecting food
+        print("-"*20)
+        print(f"Nr of food collected: {self.rob.nr_food_collected()}")
+        print(f"Collected food: {self.collected_food}")
+        print("-"*20)
         if self.rob.nr_food_collected() > self.collected_food:
             print("\n FOOD COLLECTED \n")
-            self.collected_food = self.rob.nr_food_collected()
+            # self.collected_food = self.rob.nr_food_collected()
+            self.collected_food += 1
             reward = 40
         # Same position penalty
         x, y = self.rob.get_position().x, self.rob.get_position().y
@@ -164,7 +169,7 @@ class train_env:
         )  # Subtract 1 to make bins start from 0
 
         # Convert digitized reward back to float in range -1.0 to 1.0
-        float_reward = digitized_reward / 10.0 - 1.0
+        float_reward = round(digitized_reward / 10.0 - 1.0, 1)
 
         return float_reward
 
@@ -265,7 +270,7 @@ class train_env:
         return float_score
 
     def early_termination(self):
-        if all(self.reward <= -5 for self.reward in self.past_rewards[-10:]):
+        if all(self.reward <= -0.5 for self.reward in self.past_rewards[-10:]):
             print("Early termination due to low rewards")
             return True
         return False
