@@ -42,44 +42,6 @@ def process_image(
     return cv2.bitwise_and(image, image, mask=mask)
 
 
-def process_cyan(image):
-    image = cv2.resize(image, (64, 64))
-    # Convert the RGB image to BGR
-    bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
-    # Invert the BGR image
-    bgr_inv = cv2.bitwise_not(bgr)
-
-    # Convert the inverted image to HSV
-    hsv_inv = cv2.cvtColor(bgr_inv, cv2.COLOR_BGR2HSV)
-
-    # Define the lower and upper bounds for the cyan color in HSV
-    lower_cyan = np.array([80, 70, 50])
-    upper_cyan = np.array([100, 255, 255])
-
-    # Create a mask for the cyan color
-    mask = cv2.inRange(hsv_inv, lower_cyan, upper_cyan)
-
-    return cv2.bitwise_and(hsv_inv, hsv_inv, mask=mask)
-
-
-def process_custom_color(image, rgb_color):
-    # Convert the RGB color to BGR
-    bgr_color = rgb_color[::-1]
-    # Convert the BGR color to HSV
-    hsv_color = cv2.cvtColor(np.uint8([[bgr_color]]), cv2.COLOR_BGR2HSV)[0][0]
-    # Define a small range around the HSV color
-    lower_color = np.array([hsv_color[0] - 10, 100, 100])
-    upper_color = np.array([hsv_color[0] + 10, 255, 255])
-    # Resize the image to 64x64 pixels
-    image = cv2.resize(image, (64, 64))
-    # Convert the image to HSV color space
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-    # Mask the image
-    mask = cv2.inRange(hsv_image, lower_color, upper_color)
-    return cv2.bitwise_and(image, image, mask=mask)
-
-
 def get_color_cell_and_percent(image):
     # Define the grid size
     grid_size = 3
