@@ -15,8 +15,14 @@ upper_red1 = np.array([10, 255, 255])
 lower_red2 = np.array([170, 70, 50])
 upper_red2 = np.array([180, 255, 255])
 # (hMin = 0 , sMin = 0, vMin = 0), (hMax = 92 , sMax = 131, vMax = 255)
-lower_red = np.array([0, 0, 0])
-upper_red = np.array([92, 131, 255])
+lower_red = np.array([160, 155, 84])
+upper_red = np.array([179, 255, 255])
+
+lower_red3 = np.array([0, 50, 20])
+upper_red3 = np.array([5, 255, 255])
+
+lower_red4 = np.array([175, 50, 20])
+upper_red4 = np.array([180, 255, 255])
 
 
 def process_image(
@@ -25,7 +31,7 @@ def process_image(
     # Resize the image to 64x64 pixels
     image = cv2.resize(image, (64, 64))
     # Convert the image to HSV color space
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     # Mask the image
     mask1 = cv2.inRange(hsv_image, color_lower1, color_upper1)
     if color_lower2 is not None and color_upper2 is not None:
@@ -55,6 +61,23 @@ def process_cyan(image):
     mask = cv2.inRange(hsv_inv, lower_cyan, upper_cyan)
 
     return cv2.bitwise_and(hsv_inv, hsv_inv, mask=mask)
+
+
+def process_custom_color(image, rgb_color):
+    # Convert the RGB color to BGR
+    bgr_color = rgb_color[::-1]
+    # Convert the BGR color to HSV
+    hsv_color = cv2.cvtColor(np.uint8([[bgr_color]]), cv2.COLOR_BGR2HSV)[0][0]
+    # Define a small range around the HSV color
+    lower_color = np.array([hsv_color[0] - 10, 100, 100])
+    upper_color = np.array([hsv_color[0] + 10, 255, 255])
+    # Resize the image to 64x64 pixels
+    image = cv2.resize(image, (64, 64))
+    # Convert the image to HSV color space
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+    # Mask the image
+    mask = cv2.inRange(hsv_image, lower_color, upper_color)
+    return cv2.bitwise_and(image, image, mask=mask)
 
 
 def get_color_cell_and_percent(image):
@@ -90,11 +113,8 @@ def main():
         image = cv2.imread(os.path.join(images_dir, image_file))
         # Process the image
         processed_image_green = process_image(image, lower_green, upper_green)
-        # processed_image_red = process_image(
-        #     image, lower_red1, upper_red1, lower_red2, upper_red2
-        # )
-        # processed_image_red = process_image(image, lower_red, upper_red)
-        processed_image_red = process_cyan(image)
+        processed_image_red = process_image(image, lower_red, upper_red)
+
         # Get the green percentage
         green_percent = get_color_cell_and_percent(processed_image_green)
         red_percent = get_color_cell_and_percent(processed_image_red)
