@@ -111,30 +111,40 @@ class train_env:
         self.action = 0
         self.ir_readings = []
         self.position_history = []
-        self.green_percent = 0
+        self.green_percent_cells = []
+        self.last_green_percent_cells = []
+        self.red_percent_cells = []
+        self.last_red_percent_cells = []
         self.reward = 0
         self.last_reward = 0
-        self.last_green_percent = 0
         self.collected_food = 0
         self.past_rewards = []
+
+        # Color ranges
+        self.lower_green = np.array([40, 40, 40])
+        self.upper_green = np.array([80, 255, 255])
+        self.lower_red = np.array([160, 155, 84])
+        self.upper_red = np.array([179, 255, 255])
 
     def values_reset(self):
         self.action = 0
         self.ir_readings = []
         self.position_history = []
-        self.green_percent = 0
+        self.green_percent_cells = []
+        self.last_green_percent_cells = []
+        self.red_percent_cells = []
+        self.last_red_percent_cells = []
         self.reward = 0
         self.last_reward = 0
-        self.last_green_percent = 0
         self.collected_food = 0
         self.past_rewards = []
 
     def reward_function(self):
         # Big reward for collecting food
-        print("-"*20)
+        print("-" * 20)
         print(f"Nr of food collected: {self.rob.nr_food_collected()}")
         print(f"Collected food: {self.collected_food}")
-        print("-"*20)
+        print("-" * 20)
         if self.rob.nr_food_collected() > self.collected_food:
             print("\n FOOD COLLECTED \n")
             # self.collected_food = self.rob.nr_food_collected()
@@ -152,14 +162,14 @@ class train_env:
         # IR readings penalty
         ir_p = 0
         highest_ir = max(self.ir_readings)
-        if self.green_percent > 0:
+        if self.green_percent_cells > 0:
             ir_p = 0
         elif highest_ir >= 1.0:
             ir_p = 40
         else:
             ir_p = highest_ir * 10
         # Reward
-        reward = (self.green_percent * 10 - ir_p) * pos_p
+        reward = (self.green_percent_cells * 10 - ir_p) * pos_p
 
         # Define the bin edges for digitization
         bins = np.linspace(-40, 40, 21)  # 21 edges for 20 bins
@@ -183,9 +193,12 @@ class train_env:
             self.rob.move_blocking(35, -15, time)
 
         self.ir_readings = self.read_discrete_irs()
-        image = self.process_image(self.rob.get_image_front())
-        self.last_green_percent = self.green_percent
-        self.green_percent = self.get_green_percent(image[:, :, 1])
+
+        self.last_green_percent_cells = self.green_percent_cells
+        self.last_red_percent_cells = self.red_percent_cells
+        self.green_percent_cells, self.red_percent_cells = (
+            self.get_image_green_red_percent_cells()
+        )
         self.last_reward = self.reward
         self.reward = self.reward_function()
         self.past_rewards.append(self.reward)
@@ -196,10 +209,10 @@ class train_env:
                 np.array(
                     [
                         self.action,
-                        self.green_percent,
-                        self.last_green_percent,
-                        self.reward,
-                        self.last_reward,
+                        self.green_percent_cells,
+                        # self.last_green_percent_cells,
+                        self.red_percent_cells,
+                        # self.last_red_percent_cells,
                     ]
                 ),
             ]
@@ -224,50 +237,39 @@ class train_env:
 
         return discrete_ir_readings
 
-    def process_image(self, image):
-        # Resize the image to 64x64 pixels
+    @staticmethod
+    def process_image(image, color_lower, color_upper):
         image = cv2.resize(image, (64, 64))
-        # Flip the image back
         image = cv2.flip(image, 0)
-        # Isolate green channel
-        hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-        lower_green = np.array([40, 40, 40])
-        upper_green = np.array([80, 255, 255])
-        # Mask the image
-        mask = cv2.inRange(hsv_image, lower_green, upper_green)
+        hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv_image, color_lower, color_upper)
         return cv2.bitwise_and(image, image, mask=mask)
 
-    def get_green_percent(self, image):
-        # Check if there are any 1s in the array
-        if not np.any(image):
-            return 0
-        # Define the center of the arra
-        center = np.array([32, 32])
-        # Get the coordinates of all 1s in the array
-        ones_positions = np.argwhere(image != 0)
-        # Calculate the distance of each 1 from the center
-        distances = np.linalg.norm(ones_positions - center, axis=1)
-        # Calculate the score based on the distances
-        # Closer to center gives higher score, farther gives lower score
-        min_distance = np.min(distances)
-        if min_distance == 0:
-            return 1
-        else:
-            # Normalize distance to range (0, 1) and invert it
-            normalized_distance = min_distance / np.linalg.norm(center)
-            score = 1 - normalized_distance
+    @staticmethod
+    def get_color_percent_per_cell(image):
+        grid_size = 3
+        cell_size = image.shape[0] // grid_size
+        color_percent = []
+        threshold = 0.0001
+        for i in range(grid_size):
+            for j in range(grid_size):
+                cell = image[
+                    i * cell_size : (i + 1) * cell_size,
+                    j * cell_size : (j + 1) * cell_size,
+                ]
+                non_black_pixels = np.sum(cell != 0)
+                total_pixels = cell_size * cell_size
+                percent = round(non_black_pixels / total_pixels, 3)
+                color_percent.append(1 if percent > threshold else 0)
+        return color_percent
 
-        # Define the bin edges for digitization
-        bins = np.linspace(0, 1, 11)  # 11 edges for 10 bins
-        # Digitize the score
-        digitized_score = (
-            np.digitize(score, bins) - 1
-        )  # Subtract 1 to make bins start from 0
-
-        # Convert digitized score back to float in range 0.0 to 1.0
-        float_score = digitized_score / 10.0
-
-        return float_score
+    def get_image_green_red_percent_cells(self):
+        image = self.rob.get_image_front()
+        green_image = self.process_image(image, self.lower_green, self.upper_green)
+        red_image = self.process_image(image, self.lower_red, self.upper_red)
+        green_percent_cells = self.get_color_percent_per_cell(green_image)
+        red_percent_cells = self.get_color_percent_per_cell(red_image)
+        return green_percent_cells, red_percent_cells
 
     def early_termination(self):
         if all(self.reward <= -0.5 for self.reward in self.past_rewards[-10:]):
@@ -290,10 +292,10 @@ class train_env:
                     np.array(
                         [
                             self.action,
-                            self.green_percent,
-                            self.last_green_percent,
-                            self.reward,
-                            self.last_reward,
+                            self.green_percent_cells,
+                            # self.last_green_percent_cells,
+                            self.red_percent_cells,
+                            # self.last_red_percent_cells,
                         ]
                     ),
                 ]
@@ -329,8 +331,8 @@ class train_env:
                 np.array(
                     [
                         self.action,
-                        self.green_percent,
-                        self.last_green_percent,
+                        self.green_percent_cells,
+                        self.last_green_percent_cells,
                         self.reward,
                         self.last_reward,
                     ]
