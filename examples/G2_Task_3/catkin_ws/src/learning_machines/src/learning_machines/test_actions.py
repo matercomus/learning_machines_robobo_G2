@@ -276,8 +276,13 @@ class train_env:
         bottom_ir_threshold = 50
         for ir in ir_readings:
             # Normalize the IR readings to range (0, 1)
-            normalized_ir = (ir - bottom_ir_threshold) / (
-                top_ir_threshold - bottom_ir_threshold
+            normalized_ir = max(
+                0,
+                min(
+                    1,
+                    (ir - bottom_ir_threshold)
+                    / (top_ir_threshold - bottom_ir_threshold),
+                ),
             )
             discrete_ir = np.digitize(normalized_ir, np.linspace(0, 1, 11)) - 1
             # Convert digitized IR reading back to float in range 0.0 to 1.0
