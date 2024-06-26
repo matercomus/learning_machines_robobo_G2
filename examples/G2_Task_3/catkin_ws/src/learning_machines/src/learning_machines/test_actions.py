@@ -111,10 +111,10 @@ class train_env:
         self.action = 0
         self.ir_readings = []
         self.position_history = []
-        self.green_percent_cells = []
-        self.last_green_percent_cells = []
-        self.red_percent_cells = []
-        self.last_red_percent_cells = []
+        self.green_percent_cells = np.zeros(9)
+        self.last_green_percent_cells = np.zeros(9)
+        self.red_percent_cells = np.zeros(9)
+        self.last_red_percent_cells = np.zeros(9)
         self.reward = 0
         self.last_reward = 0
         self.collected_food = 0
@@ -130,10 +130,10 @@ class train_env:
         self.action = 0
         self.ir_readings = []
         self.position_history = []
-        self.green_percent_cells = []
-        self.last_green_percent_cells = []
-        self.red_percent_cells = []
-        self.last_red_percent_cells = []
+        self.green_percent_cells = np.zeros(9)
+        self.last_green_percent_cells = np.zeros(9)
+        self.red_percent_cells = np.zeros(9)
+        self.last_red_percent_cells = np.zeros(9)
         self.reward = 0
         self.last_reward = 0
         self.collected_food = 0
@@ -203,18 +203,15 @@ class train_env:
         self.reward = self.reward_function()
         self.past_rewards.append(self.reward)
 
+        action_array = np.array([self.action])
         next_state = np.concatenate(
             [
+                action_array,
                 self.ir_readings,
-                np.array(
-                    [
-                        self.action,
-                        self.green_percent_cells,
-                        # self.last_green_percent_cells,
-                        self.red_percent_cells,
-                        # self.last_red_percent_cells,
-                    ]
-                ),
+                self.green_percent_cells,
+                # self.last_green_percent_cells,
+                self.red_percent_cells,
+                # self.last_red_percent_cells,
             ]
         )
 
@@ -235,7 +232,7 @@ class train_env:
             float_ir = discrete_ir / 10.0
             discrete_ir_readings.append(float_ir)
 
-        return discrete_ir_readings
+        return np.array(discrete_ir_readings)
 
     @staticmethod
     def process_image(image, color_lower, color_upper):
@@ -267,8 +264,8 @@ class train_env:
         image = self.rob.get_image_front()
         green_image = self.process_image(image, self.lower_green, self.upper_green)
         red_image = self.process_image(image, self.lower_red, self.upper_red)
-        green_percent_cells = self.get_color_percent_per_cell(green_image)
-        red_percent_cells = self.get_color_percent_per_cell(red_image)
+        green_percent_cells = np.array(self.get_color_percent_per_cell(green_image))
+        red_percent_cells = np.array(self.get_color_percent_per_cell(red_image))
         return green_percent_cells, red_percent_cells
 
     def early_termination(self):
@@ -286,18 +283,26 @@ class train_env:
             if epoch > 0:
                 self.values_reset()
             self.ir_readings = self.read_discrete_irs()
+
+            print("-" * 30)
+            print("Epoch: ", epoch + 1)
+            print("IR readings: ", self.ir_readings)
+            print("Action: ", self.action)
+            print("Green percent cells: ", self.green_percent_cells)
+            # print("Last green percent cells: ", self.last_green_percent_cells)
+            print("Red percent cells: ", self.red_percent_cells)
+            # print("Last red percent cells: ", self.last_red_percent_cells)
+            print("Reward: ", self.reward)
+
+            action_array = np.array([self.action])
             state = np.concatenate(
                 [
+                    action_array,
                     self.ir_readings,
-                    np.array(
-                        [
-                            self.action,
-                            self.green_percent_cells,
-                            # self.last_green_percent_cells,
-                            self.red_percent_cells,
-                            # self.last_red_percent_cells,
-                        ]
-                    ),
+                    self.green_percent_cells,
+                    # self.last_green_percent_cells,
+                    self.red_percent_cells,
+                    # self.last_red_percent_cells,
                 ]
             )
             for _ in range(128):
@@ -309,6 +314,14 @@ class train_env:
                     writer.writerow([epoch, state, next_state])
 
                 state = next_state
+                print("-" * 30)
+                print("Epoch: ", epoch + 1)
+                print("IR readings: ", self.ir_readings)
+                print("Action: ", self.action)
+                print("Green percent cells: ", self.green_percent_cells)
+                # print("Last green percent cells: ", self.last_green_percent_cells)
+                print("Red percent cells: ", self.red_percent_cells)
+                # print("Last red percent cells: ", self.last_red_percent_cells)
                 print("Reward: ", self.reward)
                 if self.early_termination():
                     break
@@ -318,7 +331,7 @@ class train_env:
             print(f"end of {epoch + 1} epoch")
             self.agent.save_model("/root/results/dqn_model.pth")
 
-    def run_trained_model(self, max_steps=200):
+    def run_trained_model(self, max_steps=200):  # TODO update
         # Load the trained model
         self.rob.stop_simulation()
         self.rob.play_simulation()
@@ -327,16 +340,12 @@ class train_env:
         self.ir_readings = self.read_discrete_irs()
         state = np.concatenate(
             [
+                self.action,
                 self.ir_readings,
-                np.array(
-                    [
-                        self.action,
-                        self.green_percent_cells,
-                        self.last_green_percent_cells,
-                        self.reward,
-                        self.last_reward,
-                    ]
-                ),
+                self.green_percent_cells,
+                # self.last_green_percent_cells,
+                self.red_percent_cells,
+                # self.last_red_percent_cells,
             ]
         )
         state = self.read_discrete_irs()
