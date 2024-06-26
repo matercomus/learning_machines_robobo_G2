@@ -111,12 +111,15 @@ class train_env:
         self.action = 0
         self.ir_readings = []
         self.position_history = []
-        self.green_percent = 0
         self.reward = 0
         self.last_reward = 0
-        self.last_green_percent = 0
+        self.green_percent = []
+        self.last_green_percent = []
+        self.red_percent = []
+        self.last_red_percent = []
         self.collected_food = 0
         self.past_rewards = []
+        self.task_flag: bool = False
 
     def values_reset(self):
         self.action = 0
@@ -126,52 +129,101 @@ class train_env:
         self.reward = 0
         self.last_reward = 0
         self.last_green_percent = 0
+        self.red_percent = []
+        self.last_red_percent = []
         self.collected_food = 0
         self.past_rewards = []
+        self.task_flag: bool = False
 
     def reward_function(self):
-        # Big reward for collecting food
-        print("-"*20)
-        print(f"Nr of food collected: {self.rob.nr_food_collected()}")
-        print(f"Collected food: {self.collected_food}")
-        print("-"*20)
-        if self.rob.nr_food_collected() > self.collected_food:
-            print("\n FOOD COLLECTED \n")
-            # self.collected_food = self.rob.nr_food_collected()
-            self.collected_food += 1
-            reward = 40
-        # Same position penalty
-        x, y = self.rob.get_position().x, self.rob.get_position().y
-        x, y = round(x, 1), round(y, 1)
-        print("\n position: ", x, y)
-        if (x, y) in self.position_history:
-            pos_p = 0.5
+        if self.task_flag:
+            target_color = self.green_percent
         else:
-            pos_p = 0
-        self.position_history.append((x, y))
-        # IR readings penalty
-        ir_p = 0
-        highest_ir = max(self.ir_readings)
-        if self.green_percent > 0:
-            ir_p = 0
-        elif highest_ir >= 1.0:
-            ir_p = 40
+            target_color = self.red_percent
+        # Image vertical columns
+        left = (target_color[0], target_color[3], target_color[6])
+        middle = (target_color[1], target_color[4], target_color[7])
+        right = (target_color[2], target_color[5], target_color[8])
+
+        left_max = max(left)
+        middle_max = max(middle)
+        right_max = max(right)
+
+        reward = 0
+        # Object in the middle
+        if middle_max == 1 and left_max == 0 and right_max == 0:
+            if self.action == 0: # go forward
+                if middle.index(middle_max) == 0:
+                    reward = 1
+                if middle.index(middle_max) == 1:
+                    reward = 3
+                if middle.index(middle_max) == 2:
+                    reward = 5
         else:
-            ir_p = highest_ir * 10
-        # Reward
-        reward = (self.green_percent * 10 - ir_p) * pos_p
+            # Object on the left
+            if left_max > right_max:
+                if self.action == 1: # go left
+                    if left.index(left_max) == 0:
+                        reward = 5
+                    if left.index(left_max) == 1:
+                        reward = 3
+                    if left.index(left_max) == 2:
+                        reward = 1
+            # Object on the right
+            if left_max < right_max:
+                if self.action == 2: # go right
+                    if right.index(right_max) == 0:
+                        reward = 5
+                    if right.index(right_max) == 1:
+                        reward = 3
+                    if right.index(right_max) == 2:
+                        reward = 1
+        return reward
 
-        # Define the bin edges for digitization
-        bins = np.linspace(-40, 40, 21)  # 21 edges for 20 bins
-        # Digitize the reward
-        digitized_reward = (
-            np.digitize(reward, bins) - 1
-        )  # Subtract 1 to make bins start from 0
 
-        # Convert digitized reward back to float in range -1.0 to 1.0
-        float_reward = round(digitized_reward / 10.0 - 1.0, 1)
+    # def reward_function(self):
+    #     # Big reward for collecting food
+    #     print("-"*20)
+    #     print(f"Nr of food collected: {self.rob.nr_food_collected()}")
+    #     print(f"Collected food: {self.collected_food}")
+    #     print("-"*20)
+    #     if self.rob.nr_food_collected() > self.collected_food:
+    #         print("\n FOOD COLLECTED \n")
+    #         # self.collected_food = self.rob.nr_food_collected()
+    #         self.collected_food += 1
+    #         reward = 40
+    #     # Same position penalty
+    #     x, y = self.rob.get_position().x, self.rob.get_position().y
+    #     x, y = round(x, 1), round(y, 1)
+    #     print("\n position: ", x, y)
+    #     if (x, y) in self.position_history:
+    #         pos_p = 0.5
+    #     else:
+    #         pos_p = 0
+    #     self.position_history.append((x, y))
+    #     # IR readings penalty
+    #     ir_p = 0
+    #     highest_ir = max(self.ir_readings)
+    #     if self.green_percent > 0:
+    #         ir_p = 0
+    #     elif highest_ir >= 1.0:
+    #         ir_p = 40
+    #     else:
+    #         ir_p = highest_ir * 10
+    #     # Reward
+    #     reward = (self.green_percent * 10 - ir_p) * pos_p
 
-        return float_reward
+    #     # Define the bin edges for digitization
+    #     bins = np.linspace(-40, 40, 21)  # 21 edges for 20 bins
+    #     # Digitize the reward
+    #     digitized_reward = (
+    #         np.digitize(reward, bins) - 1
+    #     )  # Subtract 1 to make bins start from 0
+
+    #     # Convert digitized reward back to float in range -1.0 to 1.0
+    #     float_reward = round(digitized_reward / 10.0 - 1.0, 1)
+
+    #     return float_reward
 
     def step(self, state, time=200):
         self.action = self.agent.act(state)
