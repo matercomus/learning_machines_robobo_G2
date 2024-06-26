@@ -386,7 +386,8 @@ class train_env:
         for epoch in range(100):
             self.rob.stop_simulation()
             self.rob.play_simulation()
-            self.rob.set_phone_tilt(109, 50)
+            self.rob.set_phone_pan(343, 100)
+            self.rob.set_phone_tilt(35, 100)
             if epoch > 0:
                 self.values_reset()
             self.ir_readings = self.read_discrete_irs()
