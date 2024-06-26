@@ -1,5 +1,6 @@
 import os
 import cv2
+from pathlib import Path
 import numpy as np
 
 images_dir = "/home/matt/Downloads/Photos-task3"
@@ -85,7 +86,7 @@ def main():
             (cv2.resize(image, (64, 64)), processed_image_green, processed_image_red)
         )
         # Generate the filename for the processed image
-        filename = f"{image_file}_green_percent_{image_id}.jpg"
+        filename = f"{Path(image_file).stem}_processed_image_{image_id}.jpg"
         print("-" * 50)
         print(f"Saving {filename}")
         print(f"Green: {green_percent}")
