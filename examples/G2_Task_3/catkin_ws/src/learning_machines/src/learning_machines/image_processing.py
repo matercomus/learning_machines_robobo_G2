@@ -10,20 +10,9 @@ os.makedirs(output_dir, exist_ok=True)
 lower_green = np.array([40, 40, 40])
 upper_green = np.array([80, 255, 255])
 
-lower_red1 = np.array([0, 70, 50])
-upper_red1 = np.array([10, 255, 255])
-
-lower_red2 = np.array([170, 70, 50])
-upper_red2 = np.array([180, 255, 255])
 # (hMin = 0 , sMin = 0, vMin = 0), (hMax = 92 , sMax = 131, vMax = 255)
 lower_red = np.array([160, 155, 84])
 upper_red = np.array([179, 255, 255])
-
-lower_red3 = np.array([0, 50, 20])
-upper_red3 = np.array([5, 255, 255])
-
-lower_red4 = np.array([175, 50, 20])
-upper_red4 = np.array([180, 255, 255])
 
 
 def process_image(
@@ -43,13 +32,13 @@ def process_image(
     return cv2.bitwise_and(image, image, mask=mask)
 
 
-def get_color_cell_and_percent(image):
+def get_color_percent_per_cell(image):
     # Define the grid size
     grid_size = 3
     # Get the size of each cell
     cell_size = image.shape[0] // grid_size
     # Initialize the list to store the percentage of non-black pixels in each cell
-    green_percent = []
+    color_percent = []
     # Loop over the grid cells
     for i in range(grid_size):
         for j in range(grid_size):
@@ -61,10 +50,8 @@ def get_color_cell_and_percent(image):
             # Calculate the percentage of non-black pixels in the current cell
             non_black_pixels = np.sum(cell != 0)
             total_pixels = cell_size * cell_size
-            green_percent.append(
-                (i * grid_size + j, round(non_black_pixels / total_pixels, 3))
-            )
-    return green_percent
+            color_percent.append(round(non_black_pixels / total_pixels, 3))
+    return color_percent
 
 
 def main():
@@ -77,10 +64,8 @@ def main():
         # Process the image
         processed_image_green = process_image(image, lower_green, upper_green)
         processed_image_red = process_image(image, lower_red, upper_red)
-
-        # Get the green percentage
-        green_percent = get_color_cell_and_percent(processed_image_green)
-        red_percent = get_color_cell_and_percent(processed_image_red)
+        green_percent = get_color_percent_per_cell(processed_image_green)
+        red_percent = get_color_percent_per_cell(processed_image_red)
         # Stitch the original and processed images horizontally
         stitched_image = np.hstack(
             (cv2.resize(image, (64, 64)), processed_image_green, processed_image_red)

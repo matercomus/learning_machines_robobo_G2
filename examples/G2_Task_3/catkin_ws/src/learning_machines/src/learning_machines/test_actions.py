@@ -111,21 +111,30 @@ class train_env:
         self.action = 0
         self.ir_readings = []
         self.position_history = []
+        self.green_percent_cells = np.zeros(9)
+        self.last_green_percent_cells = np.zeros(9)
+        self.red_percent_cells = np.zeros(9)
+        self.last_red_percent_cells = np.zeros(9)
         self.reward = 0
         self.last_reward = 0
-        self.green_percent = []
-        self.last_green_percent = []
-        self.red_percent = []
-        self.last_red_percent = []
         self.collected_food = 0
         self.past_rewards = []
         self.task_flag: bool = False
+
+        # Color ranges
+        self.lower_green = np.array([40, 40, 40])
+        self.upper_green = np.array([80, 255, 255])
+        self.lower_red = np.array([160, 155, 84])
+        self.upper_red = np.array([179, 255, 255])
 
     def values_reset(self):
         self.action = 0
         self.ir_readings = []
         self.position_history = []
-        self.green_percent = 0
+        self.green_percent_cells = np.zeros(9)
+        self.last_green_percent_cells = np.zeros(9)
+        self.red_percent_cells = np.zeros(9)
+        self.last_red_percent_cells = np.zeros(9)
         self.reward = 0
         self.last_reward = 0
         self.last_green_percent = 0
@@ -235,25 +244,25 @@ class train_env:
             self.rob.move_blocking(35, -15, time)
 
         self.ir_readings = self.read_discrete_irs()
-        image = self.process_image(self.rob.get_image_front())
-        self.last_green_percent = self.green_percent
-        self.green_percent = self.get_green_percent(image[:, :, 1])
+
+        self.last_green_percent_cells = self.green_percent_cells
+        self.last_red_percent_cells = self.red_percent_cells
+        self.green_percent_cells, self.red_percent_cells = (
+            self.get_image_green_red_percent_cells()
+        )
         self.last_reward = self.reward
         self.reward = self.reward_function()
         self.past_rewards.append(self.reward)
 
+        action_array = np.array([self.action])
         next_state = np.concatenate(
             [
+                action_array,
                 self.ir_readings,
-                np.array(
-                    [
-                        self.action,
-                        self.green_percent,
-                        self.last_green_percent,
-                        self.reward,
-                        self.last_reward,
-                    ]
-                ),
+                self.green_percent_cells,
+                # self.last_green_percent_cells,
+                self.red_percent_cells,
+                # self.last_red_percent_cells,
             ]
         )
 
@@ -274,52 +283,41 @@ class train_env:
             float_ir = discrete_ir / 10.0
             discrete_ir_readings.append(float_ir)
 
-        return discrete_ir_readings
+        return np.array(discrete_ir_readings)
 
-    def process_image(self, image):
-        # Resize the image to 64x64 pixels
+    @staticmethod
+    def process_image(image, color_lower, color_upper):
         image = cv2.resize(image, (64, 64))
-        # Flip the image back
         image = cv2.flip(image, 0)
-        # Isolate green channel
-        hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-        lower_green = np.array([40, 40, 40])
-        upper_green = np.array([80, 255, 255])
-        # Mask the image
-        mask = cv2.inRange(hsv_image, lower_green, upper_green)
+        hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv_image, color_lower, color_upper)
         return cv2.bitwise_and(image, image, mask=mask)
 
-    def get_green_percent(self, image):
-        # Check if there are any 1s in the array
-        if not np.any(image):
-            return 0
-        # Define the center of the arra
-        center = np.array([32, 32])
-        # Get the coordinates of all 1s in the array
-        ones_positions = np.argwhere(image != 0)
-        # Calculate the distance of each 1 from the center
-        distances = np.linalg.norm(ones_positions - center, axis=1)
-        # Calculate the score based on the distances
-        # Closer to center gives higher score, farther gives lower score
-        min_distance = np.min(distances)
-        if min_distance == 0:
-            return 1
-        else:
-            # Normalize distance to range (0, 1) and invert it
-            normalized_distance = min_distance / np.linalg.norm(center)
-            score = 1 - normalized_distance
+    @staticmethod
+    def get_color_percent_per_cell(image):
+        grid_size = 3
+        cell_size = image.shape[0] // grid_size
+        color_percent = []
+        threshold = 0.0001
+        for i in range(grid_size):
+            for j in range(grid_size):
+                cell = image[
+                    i * cell_size : (i + 1) * cell_size,
+                    j * cell_size : (j + 1) * cell_size,
+                ]
+                non_black_pixels = np.sum(cell != 0)
+                total_pixels = cell_size * cell_size
+                percent = round(non_black_pixels / total_pixels, 3)
+                color_percent.append(1 if percent > threshold else 0)
+        return color_percent
 
-        # Define the bin edges for digitization
-        bins = np.linspace(0, 1, 11)  # 11 edges for 10 bins
-        # Digitize the score
-        digitized_score = (
-            np.digitize(score, bins) - 1
-        )  # Subtract 1 to make bins start from 0
-
-        # Convert digitized score back to float in range 0.0 to 1.0
-        float_score = digitized_score / 10.0
-
-        return float_score
+    def get_image_green_red_percent_cells(self):
+        image = self.rob.get_image_front()
+        green_image = self.process_image(image, self.lower_green, self.upper_green)
+        red_image = self.process_image(image, self.lower_red, self.upper_red)
+        green_percent_cells = np.array(self.get_color_percent_per_cell(green_image))
+        red_percent_cells = np.array(self.get_color_percent_per_cell(red_image))
+        return green_percent_cells, red_percent_cells
 
     def early_termination(self):
         if all(self.reward <= -0.5 for self.reward in self.past_rewards[-10:]):
@@ -336,18 +334,26 @@ class train_env:
             if epoch > 0:
                 self.values_reset()
             self.ir_readings = self.read_discrete_irs()
+
+            print("-" * 30)
+            print("Epoch: ", epoch + 1)
+            print("IR readings: ", self.ir_readings)
+            print("Action: ", self.action)
+            print("Green percent cells: ", self.green_percent_cells)
+            # print("Last green percent cells: ", self.last_green_percent_cells)
+            print("Red percent cells: ", self.red_percent_cells)
+            # print("Last red percent cells: ", self.last_red_percent_cells)
+            print("Reward: ", self.reward)
+
+            action_array = np.array([self.action])
             state = np.concatenate(
                 [
+                    action_array,
                     self.ir_readings,
-                    np.array(
-                        [
-                            self.action,
-                            self.green_percent,
-                            self.last_green_percent,
-                            self.reward,
-                            self.last_reward,
-                        ]
-                    ),
+                    self.green_percent_cells,
+                    # self.last_green_percent_cells,
+                    self.red_percent_cells,
+                    # self.last_red_percent_cells,
                 ]
             )
             for _ in range(128):
@@ -359,6 +365,14 @@ class train_env:
                     writer.writerow([epoch, state, next_state])
 
                 state = next_state
+                print("-" * 30)
+                print("Epoch: ", epoch + 1)
+                print("IR readings: ", self.ir_readings)
+                print("Action: ", self.action)
+                print("Green percent cells: ", self.green_percent_cells)
+                # print("Last green percent cells: ", self.last_green_percent_cells)
+                print("Red percent cells: ", self.red_percent_cells)
+                # print("Last red percent cells: ", self.last_red_percent_cells)
                 print("Reward: ", self.reward)
                 if self.early_termination():
                     break
@@ -368,7 +382,7 @@ class train_env:
             print(f"end of {epoch + 1} epoch")
             self.agent.save_model("/root/results/dqn_model.pth")
 
-    def run_trained_model(self, max_steps=200):
+    def run_trained_model(self, max_steps=200):  # TODO update
         # Load the trained model
         self.rob.stop_simulation()
         self.rob.play_simulation()
@@ -377,16 +391,12 @@ class train_env:
         self.ir_readings = self.read_discrete_irs()
         state = np.concatenate(
             [
+                self.action,
                 self.ir_readings,
-                np.array(
-                    [
-                        self.action,
-                        self.green_percent,
-                        self.last_green_percent,
-                        self.reward,
-                        self.last_reward,
-                    ]
-                ),
+                self.green_percent_cells,
+                # self.last_green_percent_cells,
+                self.red_percent_cells,
+                # self.last_red_percent_cells,
             ]
         )
         state = self.read_discrete_irs()
