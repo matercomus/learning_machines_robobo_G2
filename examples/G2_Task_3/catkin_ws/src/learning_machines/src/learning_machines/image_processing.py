@@ -32,7 +32,7 @@ def process_image(
     return cv2.bitwise_and(image, image, mask=mask)
 
 
-def get_color_cell_and_percent(image):
+def get_color_percent_per_cell(image):
     # Define the grid size
     grid_size = 3
     # Get the size of each cell
@@ -64,10 +64,8 @@ def main():
         # Process the image
         processed_image_green = process_image(image, lower_green, upper_green)
         processed_image_red = process_image(image, lower_red, upper_red)
-
-        # Get the green percentage
-        green_percent = get_color_cell_and_percent(processed_image_green)
-        red_percent = get_color_cell_and_percent(processed_image_red)
+        green_percent = get_color_percent_per_cell(processed_image_green)
+        red_percent = get_color_percent_per_cell(processed_image_red)
         # Stitch the original and processed images horizontally
         stitched_image = np.hstack(
             (cv2.resize(image, (64, 64)), processed_image_green, processed_image_red)
