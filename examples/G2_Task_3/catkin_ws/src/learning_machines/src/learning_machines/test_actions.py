@@ -102,7 +102,7 @@ class DQNAgent:
 class train_env:
     def __init__(self, rob):
         self.rob = rob
-        self.state_size = 13  # Number of Feautures
+        self.state_size = 27  # Number of Feautures
         self.action_size = 3  # Three discrete actions: Forward, Left, Right
         self.agent = DQNAgent(self.state_size, self.action_size)
         self.csv_file = "/root/results/data.csv"
@@ -138,7 +138,6 @@ class train_env:
         self.reward = 0
         self.last_reward = 0
         self.last_green_percent = 0
-        self.red_percent = []
         self.last_red_percent = []
         self.collected_food = 0
         self.past_rewards = []
@@ -146,9 +145,9 @@ class train_env:
 
     def reward_function(self):
         if self.task_flag:
-            target_color = self.green_percent
+            target_color = self.green_percent_cells
         else:
-            target_color = self.red_percent
+            target_color = self.red_percent_cells
         # Image vertical columns
         left = (target_color[0], target_color[3], target_color[6])
         middle = (target_color[1], target_color[4], target_color[7])
@@ -161,7 +160,7 @@ class train_env:
         reward = 0
         # Object in the middle
         if middle_max == 1 and left_max == 0 and right_max == 0:
-            if self.action == 0: # go forward
+            if self.action == 0:  # go forward
                 if middle.index(middle_max) == 0:
                     reward = 1
                 if middle.index(middle_max) == 1:
@@ -171,7 +170,7 @@ class train_env:
         else:
             # Object on the left
             if left_max > right_max:
-                if self.action == 1: # go left
+                if self.action == 1:  # go left
                     if left.index(left_max) == 0:
                         reward = 5
                     if left.index(left_max) == 1:
@@ -180,7 +179,7 @@ class train_env:
                         reward = 1
             # Object on the right
             if left_max < right_max:
-                if self.action == 2: # go right
+                if self.action == 2:  # go right
                     if right.index(right_max) == 0:
                         reward = 5
                     if right.index(right_max) == 1:
@@ -188,7 +187,6 @@ class train_env:
                     if right.index(right_max) == 2:
                         reward = 1
         return reward
-
 
     # def reward_function(self):
     #     # Big reward for collecting food
@@ -239,9 +237,9 @@ class train_env:
         if self.action == 0:  # Forward
             self.rob.move_blocking(50, 50, time)
         elif self.action == 1:  # Left
-            self.rob.move_blocking(-15, 35, time)
+            self.rob.move_blocking(-15, 15, time)
         elif self.action == 2:  # Right
-            self.rob.move_blocking(35, -15, time)
+            self.rob.move_blocking(15, -15, time)
 
         self.ir_readings = self.read_discrete_irs()
 
@@ -254,10 +252,12 @@ class train_env:
         self.reward = self.reward_function()
         self.past_rewards.append(self.reward)
 
-        action_array = np.array([self.action])
+        # action_array = np.array([self.action])
+        flag_array = np.array([self.task_flag])
         next_state = np.concatenate(
             [
-                action_array,
+                # action_array,
+                flag_array,
                 self.ir_readings,
                 self.green_percent_cells,
                 # self.last_green_percent_cells,
@@ -265,6 +265,7 @@ class train_env:
                 # self.last_red_percent_cells,
             ]
         )
+        print("Next state shape: ", state.shape)
 
         return next_state
 
@@ -320,9 +321,13 @@ class train_env:
         return green_percent_cells, red_percent_cells
 
     def early_termination(self):
-        if all(self.reward <= -0.5 for self.reward in self.past_rewards[-10:]):
-            print("Early termination due to low rewards")
+        # IR reading fornt center is 1 and reward 0
+        if self.ir_readings[4] == 1 and self.reward == 0:
+            print("Early termination due to IR reading")
             return True
+        # if all(self.reward <= -0.5 for self.reward in self.past_rewards[-10:]):
+        # print("Early termination due to low rewards")
+        # return True
         return False
 
     def training_loop(self):
@@ -345,10 +350,12 @@ class train_env:
             # print("Last red percent cells: ", self.last_red_percent_cells)
             print("Reward: ", self.reward)
 
-            action_array = np.array([self.action])
+            # action_array = np.array([self.action])
+            flag_array = np.array([self.task_flag])
             state = np.concatenate(
                 [
-                    action_array,
+                    # action_array,
+                    flag_array,
                     self.ir_readings,
                     self.green_percent_cells,
                     # self.last_green_percent_cells,
@@ -356,6 +363,7 @@ class train_env:
                     # self.last_red_percent_cells,
                 ]
             )
+            print("State shape: ", state.shape)
             for _ in range(128):
                 next_state = self.step(state)
                 self.agent.remember(state, self.action, self.reward, next_state)
