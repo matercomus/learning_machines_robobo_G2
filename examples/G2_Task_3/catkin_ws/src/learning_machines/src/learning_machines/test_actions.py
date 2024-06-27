@@ -1,3 +1,5 @@
+import time
+import os
 import cv2
 import csv
 import numpy as np
@@ -106,6 +108,9 @@ class train_env:
         self.action_size = 3  # Three discrete actions: Forward, Left, Right
         self.agent = DQNAgent(self.state_size, self.action_size)
         self.csv_file = "/root/results/data.csv"
+        self.run_name = "test_run"
+        self.IMG_SAVE_DIR = "/root/results/images/"
+        self.img_id = 0
 
         # State values
         self.action = 0
@@ -225,6 +230,7 @@ class train_env:
             ]
         )
         print("Next state shape: ", state.shape)
+        self.img_id += 1
 
         return next_state
 
@@ -235,8 +241,13 @@ class train_env:
         bottom_ir_threshold = 50
         for ir in ir_readings:
             # Normalize the IR readings to range (0, 1)
-            normalized_ir = (ir - bottom_ir_threshold) / (
-                top_ir_threshold - bottom_ir_threshold
+            normalized_ir = max(
+                0,
+                min(
+                    1,
+                    (ir - bottom_ir_threshold)
+                    / (top_ir_threshold - bottom_ir_threshold),
+                ),
             )
             discrete_ir = np.digitize(normalized_ir, np.linspace(0, 1, 11)) - 1
             # Convert digitized IR reading back to float in range 0.0 to 1.0
@@ -245,13 +256,23 @@ class train_env:
 
         return np.array(discrete_ir_readings)
 
-    @staticmethod
-    def process_image(image, color_lower, color_upper):
+    def process_image(self, image, color, color_lower, color_upper, save_imgs=False):
         image = cv2.resize(image, (64, 64))
         image = cv2.flip(image, 0)
         hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv_image, color_lower, color_upper)
-        return cv2.bitwise_and(image, image, mask=mask)
+        processed_image = cv2.bitwise_and(image, image, mask=mask)
+
+        if save_imgs and id is not None:
+            cv2.imwrite(
+                os.path.join(
+                    self.IMG_SAVE_DIR,
+                    f"{self.run_name}_{color}_processed_image_{self.img_id}.png",
+                ),
+                processed_image,
+            )
+
+        return processed_image
 
     @staticmethod
     def get_color_percent_per_cell(image):
@@ -271,10 +292,40 @@ class train_env:
                 color_percent.append(1 if percent > threshold else 0)
         return color_percent
 
-    def get_image_green_red_percent_cells(self):
+    def get_image_green_red_percent_cells(self, save_img=True):
+        save_dir = os.path.join(
+            self.IMG_SAVE_DIR,
+            self.run_name,
+            f"{self.run_name}_stiched_image_{self.img_id}.png",
+        )
+        os.makedirs(os.path.dirname(save_dir), exist_ok=True)
         image = self.rob.get_image_front()
-        green_image = self.process_image(image, self.lower_green, self.upper_green)
-        red_image = self.process_image(image, self.lower_red, self.upper_red)
+        green_image = self.process_image(
+            image,
+            "green",
+            self.lower_green,
+            self.upper_green,
+        )
+        red_image = self.process_image(
+            image,
+            "red",
+            self.lower_red,
+            self.upper_red,
+        )
+        if save_img:
+            print(f"Saving images in {os.path.dirname(save_dir)}")
+            stitched_image = np.hstack(
+                (
+                    cv2.flip(cv2.resize(image, (64, 64)), 0),
+                    green_image,
+                    red_image,
+                )
+            )
+            cv2.imwrite(
+                save_dir,
+                stitched_image,
+            )
+
         green_percent_cells = np.array(self.get_color_percent_per_cell(green_image))
         red_percent_cells = np.array(self.get_color_percent_per_cell(red_image))
         return green_percent_cells, red_percent_cells
@@ -291,6 +342,8 @@ class train_env:
             self.rob.stop_simulation()
             self.rob.play_simulation()
             self.rob.set_phone_tilt(109, 100)
+            self.rob.set_phone_pan(343, 100)
+            self.rob.set_phone_tilt(35, 100)
             if epoch > 0:
                 self.values_reset()
             self.ir_readings = self.read_discrete_irs()
