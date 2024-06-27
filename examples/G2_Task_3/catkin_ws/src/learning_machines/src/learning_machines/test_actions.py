@@ -61,12 +61,20 @@ class DQNAgent:
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         self.batch_size = 128
 
-    def save_model(self, file_name):
-        torch.save(self.model.state_dict(), file_name)
+    def save_model(self, file_name, epoch):
+        checkpoint = {
+            'model_state_dict': self.model.state_dict(),
+            'epoch': epoch,
+            'epsilon': self.epsilon
+        }
+        torch.save(checkpoint, file_name)
 
     def load_model(self, file_name):
-        self.model.load_state_dict(torch.load(file_name))
+        checkpoint = torch.load(file_name)
+        self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.eval()  # Set the model to evaluation mode
+        self.epsilon = checkpoint['epsilon']
+        return checkpoint['epoch']
 
     def remember(self, state, action, reward, next_state):
         self.memory.append((state, action, reward, next_state))
@@ -178,6 +186,9 @@ class train_env:
             h == l_r or h == r_l or h == l_r_2 or h == r_l_2
             ):
             return -3
+        # If all states are 0 keep turning
+        if max(self.ir_readings) == 0 and max(target_color) == 0 and self.action == 2:
+            return 1
         # Object in the middle
         if middle_max == 1 and left_max == 0 and right_max == 0:
             if self.action == 0:  # go forward
@@ -370,11 +381,12 @@ class train_env:
             return 2
         return 0
 
-    def training_loop(self, load_previous_model=False):
+    def training_loop(self, load_previous_model=True):
+        start_epoch = 0
         if load_previous_model:
-            self.agent.load_model("/root/results/dqn_model.pth")
+            start_epoch = self.agent.load_model("/root/results/dqn_model.pth")
         print("Training started")
-        for epoch in range(100):
+        for epoch in range(start_epoch, start_epoch + 50):
             self.rob.stop_simulation()
             self.rob.play_simulation()
             self.rob.set_phone_tilt(109, 100)
@@ -415,14 +427,16 @@ class train_env:
                     break
                 # Train the model last time and stop the training.
                 elif self.early_termination() == 2:
-                    self.agent.replay()
-                    self.agent.save_model("/root/results/dqn_model.pth")
-                    exit(1)
+                    if len(self.agent.memory) >= self.agent.batch_size:
+                        self.agent.replay()
+                    self.agent.save_model("/root/results/dqn_model.pth", epoch + 1)
+                    if not load_previous_model:
+                        exit(1)
 
             if len(self.agent.memory) >= self.agent.batch_size:
                 self.agent.replay()
             print(f"end of {epoch + 1} epoch")
-            self.agent.save_model("/root/results/dqn_model.pth")
+            self.agent.save_model("/root/results/dqn_model.pth", epoch + 1)
 
     def run_trained_model(self, max_steps=400):  # TODO update
         # Load the trained model
