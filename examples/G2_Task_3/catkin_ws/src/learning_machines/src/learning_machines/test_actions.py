@@ -202,13 +202,12 @@ class train_env:
                     if right.index(right_max) == 2:
                         reward = 1
         # Swich to objective 2 if object was close in the middle and action was forward
-        if not self.task_flag and middle.index(middle_max) == 2 and self.action == 0:
-            self.task_flag == True
+        if not self.task_flag and self.last_red_percent_cells[7] == 1 and max(target_color) == 0 and self.action == 0:
+            self.task_flag = True
             reward = 10
         # Task finished!!!
-        if self.task_flag and middle.index(middle_max) == 2 and self.action == 0:
+        elif self.task_flag and middle.index(middle_max) == 2 and self.action == 0:
             reward = 10
-
         return reward
 
     def step(self, state, time=200):
@@ -244,7 +243,6 @@ class train_env:
                 # self.last_red_percent_cells,
             ]
         )
-        print("Next state shape: ", state.shape)
         self.img_id += 1
 
         return next_state
@@ -398,7 +396,7 @@ class train_env:
                 # store data
                 with open(self.csv_file, mode="a", newline="") as file:
                     writer = csv.writer(file)
-                    writer.writerow([epoch, state, next_state])
+                    writer.writerow([epoch, self.task_flag, self.reward, self.action, self.ir_readings, self.red_percent_cells, self.green_percent_cells, self.img_id])
 
                 state = next_state
                 print("-" * 30)
