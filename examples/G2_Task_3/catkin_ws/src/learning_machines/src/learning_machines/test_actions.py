@@ -129,31 +129,10 @@ class train_env:
         # Color ranges
         self.lower_green = np.array([40, 40, 40])
         self.upper_green = np.array([80, 255, 255])
-        self.lower_red = np.array([160, 155, 84])
-        self.upper_red = np.array([179, 255, 255])
-        self.lower_red1 = np.array([0, 70, 50])
-        self.upper_red1 = np.array([10, 255, 255])
-        self.lower_red2 = np.array([170, 70, 50])
-        self.upper_red2 = np.array([180, 255, 255])
-        # (hMin = 0 , sMin = 0, vMin = 198), (hMax = 152 , sMax = 255, vMax = 255)
-        self.lower_red3 = np.array([0, 0, 198])
-        self.upper_red3 = np.array([152, 255, 255])
-        # (hMin = 3 , sMin = 253, vMin = 0), (hMax = 179 , sMax = 255, vMax = 255)
-        self.lower_blue = np.array([3, 253, 0])
-        self.upper_blue = np.array([179, 255, 255])
-        # (hMin = 11 , sMin = 252, vMin = 170), (hMax = 48 , sMax = 255, vMax = 255)
-        self.lower_red4 = np.array([11, 252, 170])
-        self.upper_red4 = np.array([48, 255, 255])
-        # (hMin = 0 , sMin = 0, vMin = 199), (hMax = 25 , sMax = 130, vMax = 214)
-        self.lower_red5 = np.array([0, 0, 199])
-        self.upper_red5 = np.array([25, 130, 214])
-        self.lower_yellow = np.array([20, 100, 100])
-        self.upper_yellow = np.array([30, 255, 255])
-
-        self.lower_red6 = np.array([0, 100, 100])
-        self.upper_red6 = np.array([10, 255, 255])
-        self.lower_red7 = np.array([170, 100, 100])
-        self.upper_red7 = np.array([180, 255, 255])
+        self.lower_red8 = np.array([0, 120, 70])
+        self.upper_red8 = np.array([10, 255, 255])
+        self.lower_red9 = np.array([170, 120, 70])
+        self.upper_red9 = np.array([180, 255, 255])
 
     def values_reset(self):
         self.action = 0
@@ -287,7 +266,7 @@ class train_env:
         save_imgs=False,
     ):
         image = cv2.resize(image, (64, 64))
-        hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         mask1 = cv2.inRange(hsv_image, color_lower1, color_upper1)
         if color_lower2 is not None and color_upper2 is not None:
             mask2 = cv2.inRange(hsv_image, color_lower2, color_upper2)
@@ -342,10 +321,10 @@ class train_env:
         red_image = self.process_image(
             image,
             "red",
-            self.lower_red6,
-            self.upper_red6,
-            self.lower_red7,
-            self.upper_red7,
+            self.lower_red8,
+            self.upper_red8,
+            self.lower_red9,
+            self.upper_red9,
         )
         if save_img:
             print(f"Saving images in {save_dir}")
