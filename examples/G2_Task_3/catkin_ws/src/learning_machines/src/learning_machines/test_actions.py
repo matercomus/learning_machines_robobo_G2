@@ -108,7 +108,7 @@ class train_env:
         self.action_size = 3  # Three discrete actions: Forward, Left, Right
         self.agent = DQNAgent(self.state_size, self.action_size)
         self.csv_file = "/root/results/data.csv"
-        self.run_name = "test_run"
+        self.run_name = f"test_run_{time.strftime('%Y%m%d-%H%M%S')}"
         self.IMG_SAVE_DIR = "/root/results/images/"
         self.img_id = 0
 
@@ -129,8 +129,10 @@ class train_env:
         # Color ranges
         self.lower_green = np.array([40, 40, 40])
         self.upper_green = np.array([80, 255, 255])
-        self.lower_red = np.array([160, 155, 84])
-        self.upper_red = np.array([179, 255, 255])
+        self.lower_red8 = np.array([0, 120, 70])
+        self.upper_red8 = np.array([10, 255, 255])
+        self.lower_red9 = np.array([170, 120, 70])
+        self.upper_red9 = np.array([180, 255, 255])
 
     def values_reset(self):
         self.action = 0
@@ -257,11 +259,24 @@ class train_env:
 
         return np.array(discrete_ir_readings)
 
-    def process_image(self, image, color, color_lower, color_upper, save_imgs=False):
+    def process_image(
+        self,
+        image,
+        color,
+        color_lower1,
+        color_upper1,
+        color_lower2=None,
+        color_upper2=None,
+        save_imgs=False,
+    ):
         image = cv2.resize(image, (64, 64))
-        image = cv2.flip(image, 0)
         hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv_image, color_lower, color_upper)
+        mask1 = cv2.inRange(hsv_image, color_lower1, color_upper1)
+        if color_lower2 is not None and color_upper2 is not None:
+            mask2 = cv2.inRange(hsv_image, color_lower2, color_upper2)
+            mask = cv2.bitwise_or(mask1, mask2)
+        else:
+            mask = mask1
         processed_image = cv2.bitwise_and(image, image, mask=mask)
 
         if save_imgs and id is not None:
@@ -280,7 +295,7 @@ class train_env:
         grid_size = 3
         cell_size = image.shape[0] // grid_size
         color_percent = []
-        threshold = 0.0001
+        threshold = 0.00001
         for i in range(grid_size):
             for j in range(grid_size):
                 cell = image[
@@ -310,14 +325,16 @@ class train_env:
         red_image = self.process_image(
             image,
             "red",
-            self.lower_red,
-            self.upper_red,
+            self.lower_red8,
+            self.upper_red8,
+            self.lower_red9,
+            self.upper_red9,
         )
         if save_img:
-            print(f"Saving images in {os.path.dirname(save_dir)}")
+            print(f"Saving images in {save_dir}")
             stitched_image = np.hstack(
                 (
-                    cv2.flip(cv2.resize(image, (64, 64)), 0),
+                    cv2.resize(image, (64, 64)),
                     green_image,
                     red_image,
                 )
@@ -344,7 +361,7 @@ class train_env:
             self.rob.play_simulation()
             self.rob.set_phone_tilt(109, 100)
             self.rob.set_phone_pan(343, 100)
-            self.rob.set_phone_tilt(35, 100)
+            self.rob.set_phone_tilt(30, 100)
             if epoch > 0:
                 self.values_reset()
             self.ir_readings = self.read_discrete_irs()

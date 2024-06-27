@@ -14,6 +14,11 @@ upper_green = np.array([80, 255, 255])
 lower_red = np.array([160, 155, 84])
 upper_red = np.array([179, 255, 255])
 
+lower_red1 = np.array([0, 70, 50])
+upper_red1 = np.array([10, 255, 255])
+lower_red2 = np.array([170, 70, 50])
+upper_red2 = np.array([180, 255, 255])
+
 
 def process_image(
     image, color_lower1, color_upper1, color_lower2=None, color_upper2=None
@@ -63,7 +68,9 @@ def main():
         image = cv2.imread(os.path.join(images_dir, image_file))
         # Process the image
         processed_image_green = process_image(image, lower_green, upper_green)
-        processed_image_red = process_image(image, lower_red, upper_red)
+        processed_image_red = process_image(
+            image, lower_red1, upper_red1, lower_red2, upper_red2
+        )
         green_percent = get_color_percent_per_cell(processed_image_green)
         red_percent = get_color_percent_per_cell(processed_image_red)
         # Stitch the original and processed images horizontally
