@@ -165,6 +165,7 @@ class train_env:
         right_max = max(right)
 
         reward = 0
+
         # Penalty for bump
         if max(target_color) == 0 and \
             (self.ir_readings[4] == 1 or self.ir_readings[2] == 1 or self.ir_readings[3] == 1):
@@ -197,10 +198,14 @@ class train_env:
                         reward = 3
                     if right.index(right_max) == 2:
                         reward = 1
-        # Swich objective if object was close in the middle and action was forward
+        # Swich to objective 2 if object was close in the middle and action was forward
         if not self.task_flag and middle.index(middle_max) == 2 and self.action == 0:
             self.task_flag == True
             reward = 10
+        # Task finished!!!
+        if self.task_flag and middle.index(middle_max) == 2 and self.action == 0:
+            reward = 10
+
         return reward
 
     def step(self, state, time=200):
@@ -355,8 +360,11 @@ class train_env:
     def early_termination(self):
         if self.reward == -10:
             print("Early termination due to IR reading")
-            return True
-        return False
+            return 1
+        elif self.reward == 10 and self.task_flag:
+            print("GOAL REACHED!!! No need for more training.")
+            return 2
+        return 0
 
     def training_loop(self):
         print("Training started")
@@ -394,15 +402,19 @@ class train_env:
                 state = next_state
                 print("-" * 30)
                 print("Epoch: ", epoch + 1)
+                print("Task:", self.task_flag)
                 print("IR readings: ", self.ir_readings)
                 print("Action: ", self.action)
                 print("Green percent cells: ", self.green_percent_cells)
-                # print("Last green percent cells: ", self.last_green_percent_cells)
                 print("Red percent cells: ", self.red_percent_cells)
-                # print("Last red percent cells: ", self.last_red_percent_cells)
                 print("Reward: ", self.reward)
-                if self.early_termination():
+                if self.early_termination() == 1:
                     break
+                # Train the model last time and stop the training.
+                elif self.early_termination() == 2:
+                    self.agent.replay()
+                    self.agent.save_model("/root/results/dqn_model.pth")
+                    exit(1)
 
             if len(self.agent.memory) >= self.agent.batch_size:
                 self.agent.replay()
