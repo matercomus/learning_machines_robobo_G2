@@ -164,7 +164,8 @@ class train_env:
 
         reward = 0
         # Penalty for bump
-        if max(target_color) == 0 and self.ir_readings[4] == 1:
+        if max(target_color) == 0 and \
+            (self.ir_readings[4] == 1 or self.ir_readings[2] == 1 or self.ir_readings[3] == 1):
             reward = -10
         # Object in the middle
         elif middle_max == 1 and left_max == 0 and right_max == 0:
@@ -331,7 +332,7 @@ class train_env:
         return green_percent_cells, red_percent_cells
 
     def early_termination(self):
-        if self.ir_readings[4] == 1 and self.reward == -10:
+        if self.reward == -10:
             print("Early termination due to IR reading")
             return True
         return False
