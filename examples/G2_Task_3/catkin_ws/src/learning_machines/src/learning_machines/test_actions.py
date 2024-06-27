@@ -166,8 +166,11 @@ class train_env:
 
         reward = 0
         # Penalty for bump
-        if max(target_color) == 0 and \
-            (self.ir_readings[4] == 1 or self.ir_readings[2] == 1 or self.ir_readings[3] == 1):
+        if max(target_color) == 0 and (
+            self.ir_readings[4] == 1
+            or self.ir_readings[2] == 1
+            or self.ir_readings[3] == 1
+        ):
             reward = -10
         # Object in the middle
         elif middle_max == 1 and left_max == 0 and right_max == 0:
@@ -360,8 +363,6 @@ class train_env:
             self.rob.stop_simulation()
             self.rob.play_simulation()
             self.rob.set_phone_tilt(109, 100)
-            self.rob.set_phone_pan(343, 100)
-            self.rob.set_phone_tilt(30, 100)
             if epoch > 0:
                 self.values_reset()
             self.ir_readings = self.read_discrete_irs()
