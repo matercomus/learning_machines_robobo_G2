@@ -206,7 +206,7 @@ class train_env:
             self.task_flag = True
             reward = 10
         # Task finished!!!
-        elif self.task_flag and middle.index(middle_max) == 2 and self.action == 0:
+        elif self.rob.base_detects_food():
             reward = 10
         return reward
 
@@ -362,7 +362,7 @@ class train_env:
         if self.reward == -10:
             print("Early termination due to IR reading")
             return 1
-        elif self.reward == 10 and self.task_flag:
+        elif self.rob.base_detects_food():
             print("GOAL REACHED!!! No need for more training.")
             return 2
         return 0
