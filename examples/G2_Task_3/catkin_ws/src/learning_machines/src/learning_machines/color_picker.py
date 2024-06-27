@@ -7,7 +7,11 @@ def nothing(x):
 
 
 # Load image
-image = cv2.imread("/home/matt/Downloads/Photos-task3/IMG_20240625_114004.jpg")
+image = cv2.imread(
+    "/home/matt/Dev/MS_AI/learning_machines_robobo_G2/examples/G2_Task_3/results/images/test_run_20240627-000651/test_run_20240627-000651_stiched_image_6.png"
+)
+image = cv2.resize(image, (64, 64))
+image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
 
 # Create a window
