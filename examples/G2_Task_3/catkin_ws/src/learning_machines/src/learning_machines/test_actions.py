@@ -197,6 +197,10 @@ class train_env:
                         reward = 3
                     if right.index(right_max) == 2:
                         reward = 1
+        # Swich objective if object was close in the middle and action was forward
+        if not self.task_flag and middle.index(middle_max) == 2 and self.action == 0:
+            self.task_flag == True
+            reward = 10
         return reward
 
     def step(self, state, time=200):
