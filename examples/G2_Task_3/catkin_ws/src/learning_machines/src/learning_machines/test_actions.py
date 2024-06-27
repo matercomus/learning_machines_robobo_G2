@@ -108,7 +108,7 @@ class train_env:
         self.action_size = 3  # Three discrete actions: Forward, Left, Right
         self.agent = DQNAgent(self.state_size, self.action_size)
         self.csv_file = "/root/results/data.csv"
-        self.run_name = "test_run"
+        self.run_name = f"test_run_{time.strftime('%Y%m%d-%H%M%S')}"
         self.IMG_SAVE_DIR = "/root/results/images/"
         self.img_id = 0
 
@@ -131,6 +131,29 @@ class train_env:
         self.upper_green = np.array([80, 255, 255])
         self.lower_red = np.array([160, 155, 84])
         self.upper_red = np.array([179, 255, 255])
+        self.lower_red1 = np.array([0, 70, 50])
+        self.upper_red1 = np.array([10, 255, 255])
+        self.lower_red2 = np.array([170, 70, 50])
+        self.upper_red2 = np.array([180, 255, 255])
+        # (hMin = 0 , sMin = 0, vMin = 198), (hMax = 152 , sMax = 255, vMax = 255)
+        self.lower_red3 = np.array([0, 0, 198])
+        self.upper_red3 = np.array([152, 255, 255])
+        # (hMin = 3 , sMin = 253, vMin = 0), (hMax = 179 , sMax = 255, vMax = 255)
+        self.lower_blue = np.array([3, 253, 0])
+        self.upper_blue = np.array([179, 255, 255])
+        # (hMin = 11 , sMin = 252, vMin = 170), (hMax = 48 , sMax = 255, vMax = 255)
+        self.lower_red4 = np.array([11, 252, 170])
+        self.upper_red4 = np.array([48, 255, 255])
+        # (hMin = 0 , sMin = 0, vMin = 199), (hMax = 25 , sMax = 130, vMax = 214)
+        self.lower_red5 = np.array([0, 0, 199])
+        self.upper_red5 = np.array([25, 130, 214])
+        self.lower_yellow = np.array([20, 100, 100])
+        self.upper_yellow = np.array([30, 255, 255])
+
+        self.lower_red6 = np.array([0, 100, 100])
+        self.upper_red6 = np.array([10, 255, 255])
+        self.lower_red7 = np.array([170, 100, 100])
+        self.upper_red7 = np.array([180, 255, 255])
 
     def values_reset(self):
         self.action = 0
@@ -193,50 +216,6 @@ class train_env:
                         reward = 1
         return reward
 
-    # def reward_function(self):
-    #     # Big reward for collecting food
-    #     print("-"*20)
-    #     print(f"Nr of food collected: {self.rob.nr_food_collected()}")
-    #     print(f"Collected food: {self.collected_food}")
-    #     print("-"*20)
-    #     if self.rob.nr_food_collected() > self.collected_food:
-    #         print("\n FOOD COLLECTED \n")
-    #         # self.collected_food = self.rob.nr_food_collected()
-    #         self.collected_food += 1
-    #         reward = 40
-    #     # Same position penalty
-    #     x, y = self.rob.get_position().x, self.rob.get_position().y
-    #     x, y = round(x, 1), round(y, 1)
-    #     print("\n position: ", x, y)
-    #     if (x, y) in self.position_history:
-    #         pos_p = 0.5
-    #     else:
-    #         pos_p = 0
-    #     self.position_history.append((x, y))
-    #     # IR readings penalty
-    #     ir_p = 0
-    #     highest_ir = max(self.ir_readings)
-    #     if self.green_percent > 0:
-    #         ir_p = 0
-    #     elif highest_ir >= 1.0:
-    #         ir_p = 40
-    #     else:
-    #         ir_p = highest_ir * 10
-    #     # Reward
-    #     reward = (self.green_percent * 10 - ir_p) * pos_p
-
-    #     # Define the bin edges for digitization
-    #     bins = np.linspace(-40, 40, 21)  # 21 edges for 20 bins
-    #     # Digitize the reward
-    #     digitized_reward = (
-    #         np.digitize(reward, bins) - 1
-    #     )  # Subtract 1 to make bins start from 0
-
-    #     # Convert digitized reward back to float in range -1.0 to 1.0
-    #     float_reward = round(digitized_reward / 10.0 - 1.0, 1)
-
-    #     return float_reward
-
     def step(self, state, time=200):
         self.action = self.agent.act(state)
         if self.action == 0:  # Forward
@@ -297,11 +276,24 @@ class train_env:
 
         return np.array(discrete_ir_readings)
 
-    def process_image(self, image, color, color_lower, color_upper, save_imgs=False):
+    def process_image(
+        self,
+        image,
+        color,
+        color_lower1,
+        color_upper1,
+        color_lower2=None,
+        color_upper2=None,
+        save_imgs=False,
+    ):
         image = cv2.resize(image, (64, 64))
-        image = cv2.flip(image, 0)
-        hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv_image, color_lower, color_upper)
+        hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        mask1 = cv2.inRange(hsv_image, color_lower1, color_upper1)
+        if color_lower2 is not None and color_upper2 is not None:
+            mask2 = cv2.inRange(hsv_image, color_lower2, color_upper2)
+            mask = cv2.bitwise_or(mask1, mask2)
+        else:
+            mask = mask1
         processed_image = cv2.bitwise_and(image, image, mask=mask)
 
         if save_imgs and id is not None:
@@ -320,7 +312,7 @@ class train_env:
         grid_size = 3
         cell_size = image.shape[0] // grid_size
         color_percent = []
-        threshold = 0.0001
+        threshold = 0.00001
         for i in range(grid_size):
             for j in range(grid_size):
                 cell = image[
@@ -350,14 +342,16 @@ class train_env:
         red_image = self.process_image(
             image,
             "red",
-            self.lower_red,
-            self.upper_red,
+            self.lower_red6,
+            self.upper_red6,
+            self.lower_red7,
+            self.upper_red7,
         )
         if save_img:
-            print(f"Saving images in {os.path.dirname(save_dir)}")
+            print(f"Saving images in {save_dir}")
             stitched_image = np.hstack(
                 (
-                    cv2.flip(cv2.resize(image, (64, 64)), 0),
+                    cv2.resize(image, (64, 64)),
                     green_image,
                     red_image,
                 )
@@ -387,7 +381,7 @@ class train_env:
             self.rob.stop_simulation()
             self.rob.play_simulation()
             self.rob.set_phone_pan(343, 100)
-            self.rob.set_phone_tilt(35, 100)
+            self.rob.set_phone_tilt(30, 100)
             if epoch > 0:
                 self.values_reset()
             self.ir_readings = self.read_discrete_irs()
