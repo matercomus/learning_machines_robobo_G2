@@ -17,10 +17,12 @@ from robobo_interface import (
 
 def run_all_actions(rob: IRobobo):
     env = train_env(rob)
-    env.rob.play_simulation()
-    env.training_loop()
-    # env.run_trained_model()
-    env.rob.stop_simulation()
+    if isinstance(rob, SimulationRobobo):
+        env.rob.play_simulation()
+    # env.training_loop()
+    env.run_trained_model()
+    if isinstance(rob, SimulationRobobo):
+        env.rob.stop_simulation()
 
 
 # Define the neural network model
@@ -221,14 +223,15 @@ class train_env:
             self.task_flag = True
             return 10
         # Task finished!!!
-        elif self.rob.base_detects_food():
-            return 10
+        if isinstance(self.rob, SimulationRobobo):
+            if self.rob.base_detects_food():
+                return 10
         return reward
 
     def step(self, state, time=200):
         self.action = self.agent.act(state)
         if self.action == 0:  # Forward
-            self.rob.move_blocking(50, 50, time)
+            self.rob.move_blocking(50, 50, 300)
         elif self.action == 1:  # Left
             self.rob.move_blocking(-15, 15, time)
         elif self.action == 2:  # Right
@@ -332,7 +335,7 @@ class train_env:
                 color_percent.append(1 if percent > threshold else 0)
         return color_percent
 
-    def get_image_green_red_percent_cells(self, save_img=False):
+    def get_image_green_red_percent_cells(self, save_img=True):
         save_dir = os.path.join(
             self.IMG_SAVE_DIR,
             self.run_name,
@@ -429,7 +432,7 @@ class train_env:
                 elif self.early_termination() == 2:
                     if len(self.agent.memory) >= self.agent.batch_size:
                         self.agent.replay()
-                    self.agent.save_model("/root/results/dqn_model.pth", epoch + 1)
+                    self.agent.save_model("/root/results/dqn_model_best.pth", epoch + 1)
                     if not load_previous_model:
                         exit(1)
 
@@ -440,10 +443,11 @@ class train_env:
 
     def run_trained_model(self, max_steps=400):  # TODO update
         # Load the trained model
-        self.rob.stop_simulation()
-        self.rob.play_simulation()
+        if isinstance(self.rob, SimulationRobobo):
+            self.rob.stop_simulation()
+            self.rob.play_simulation()
         self.rob.set_phone_tilt(109, 100)
-        self.agent.load_model("/root/results/dqn_model.pth")
+        self.agent.load_model("/root/results/dqn_model_best.pth")
         self.ir_readings = self.read_discrete_irs()
         flag_array = np.array([self.task_flag])
         if not self.task_flag:
